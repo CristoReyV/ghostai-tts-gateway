@@ -60,19 +60,19 @@
       <div class="endpoint-item glass-card">
         <div class="endpoint-info">
           <span class="method get">GET</span>
-          <span class="path">/api/health</span>
-          <span class="desc">Comprobación de salud y estado del gateway</span>
+          <span class="path">/health</span>
+          <span class="desc">Comprobación de salud y conectividad del gateway</span>
         </div>
-        <a href="/api/health" target="_blank" class="test-btn">Probar</a>
+        <a href="/health" target="_blank" class="test-btn">Probar</a>
       </div>
 
       <div class="endpoint-item glass-card">
         <div class="endpoint-info">
           <span class="method post">POST</span>
-          <span class="path">/api/tts</span>
+          <span class="path">/tts</span>
           <span class="desc">Petición de síntesis y streaming de audio</span>
         </div>
-        <a href="/api/tts" target="_blank" class="test-btn">Ver Info</a>
+        <a href="/tts" target="_blank" class="test-btn">Ver Info</a>
       </div>
     </section>
 
@@ -80,10 +80,10 @@
     <section class="card glass-card tester-card">
       <h3 class="section-title-sm">Quick Test Console</h3>
       <div class="console-box">
-        <pre><code id="console-output">// Haz clic en "Pintar Estado" para verificar respuesta en vivo...</code></pre>
+        <pre><code id="console-output">// Haz clic en "Comprobar /health" para verificar respuesta en vivo...</code></pre>
       </div>
       <div class="action-row">
-        <button id="btn-check" class="primary-btn">Comprobar /api/health</button>
+        <button id="btn-check" class="primary-btn">Comprobar /health</button>
         <button id="btn-copy-curl" class="secondary-btn">Copiar cURL de prueba</button>
       </div>
     </section>
@@ -102,10 +102,10 @@
     const pingVal = document.getElementById('ping-val');
 
     btnCheck.addEventListener('click', async () => {
-      consoleOutput.textContent = 'Enviando petición a /api/health...';
+      consoleOutput.textContent = 'Enviando petición a /health...';
       const t0 = performance.now();
       try {
-        const res = await fetch('/api/health');
+        const res = await fetch('/health');
         const diff = Math.round(performance.now() - t0);
         pingVal.textContent = diff;
         const data = await res.json();

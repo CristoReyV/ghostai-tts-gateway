@@ -3,14 +3,28 @@
   functions = "netlify/functions"
 
 [[redirects]]
-  from = "/api/tts"
-  to = "/.netlify/functions/tts"
+  from = "/health"
+  to = "/.netlify/functions/health"
   status = 200
+  force = true
 
 [[redirects]]
   from = "/api/health"
   to = "/.netlify/functions/health"
   status = 200
+  force = true
+
+[[redirects]]
+  from = "/tts"
+  to = "/.netlify/functions/tts"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/tts"
+  to = "/.netlify/functions/tts"
+  status = 200
+  force = true
 
 [[headers]]
   for = "/*"
@@ -18,3 +32,4 @@
     Access-Control-Allow-Origin = "*"
     Access-Control-Allow-Methods = "GET, POST, OPTIONS"
     Access-Control-Allow-Headers = "Content-Type, Authorization"
+    X-GhostAI-Gateway = "true"

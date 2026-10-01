@@ -6,7 +6,8 @@ exports.handler = async (event, context) => {
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS"
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "X-GhostAI-Gateway": "true"
       },
       body: ""
     };
@@ -16,7 +17,8 @@ exports.handler = async (event, context) => {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS"
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "X-GhostAI-Gateway": "true"
   };
 
   if (event.httpMethod === "GET") {

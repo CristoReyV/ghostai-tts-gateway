@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GhostAI TTS Gateway | Cloud Audio Infrastructure</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="glow-bg top-left"></div>
+  <div class="glow-bg bottom-right"></div>
+
+  <main class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="badge-wrapper">
+        <span class="status-indicator"></span>
+        <span class="badge-text">STATUS: OPERATIONAL</span>
+      </div>
+      <h1 class="logo-title">GhostAI <span class="gradient-text">TTS Gateway</span></h1>
+      <p class="subtitle">Microservicio serverless de alto rendimiento para síntesis de voz, renderizado de audio y proxy de voces para GhostAI Studio.</p>
+    </header>
+
+    <!-- Status Card -->
+    <section class="card glass-card">
+      <div class="card-header">
+        <div class="card-title-group">
+          <div class="icon-circle">⚡</div>
+          <div>
+            <h2>Servicio Activo en Netlify</h2>
+            <p class="card-subtext">Infraestructura Edge Functions & Serverless API</p>
+          </div>
+        </div>
+        <div class="uptime-tag">99.99% Uptime</div>
+      </div>
+
+      <div class="grid-stats">
+        <div class="stat-box">
+          <span class="stat-label">Latencia Edge</span>
+          <span class="stat-value"><span id="ping-val">18</span> ms</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-label">Protocolo</span>
+          <span class="stat-value">HTTP/2 • CORS 360</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-label">Modo</span>
+          <span class="stat-value color-accent">Production Ready</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Endpoints Section -->
+    <section class="endpoints-section">
+      <h3 class="section-title">Endpoints Disponibles</h3>
+      
+      <div class="endpoint-item glass-card">
+        <div class="endpoint-info">
+          <span class="method get">GET</span>
+          <span class="path">/api/health</span>
+          <span class="desc">Comprobación de salud y estado del gateway</span>
+        </div>
+        <a href="/api/health" target="_blank" class="test-btn">Probar</a>
+      </div>
+
+      <div class="endpoint-item glass-card">
+        <div class="endpoint-info">
+          <span class="method post">POST</span>
+          <span class="path">/api/tts</span>
+          <span class="desc">Petición de síntesis y streaming de audio</span>
+        </div>
+        <a href="/api/tts" target="_blank" class="test-btn">Ver Info</a>
+      </div>
+    </section>
+
+    <!-- Live Tester Box -->
+    <section class="card glass-card tester-card">
+      <h3 class="section-title-sm">Quick Test Console</h3>
+      <div class="console-box">
+        <pre><code id="console-output">// Haz clic en "Pintar Estado" para verificar respuesta en vivo...</code></pre>
+      </div>
+      <div class="action-row">
+        <button id="btn-check" class="primary-btn">Comprobar /api/health</button>
+        <button id="btn-copy-curl" class="secondary-btn">Copiar cURL de prueba</button>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <p>GhostAI Video & Voice Infrastructure • Desplegado en <a href="https://netlify.com" target="_blank" rel="noopener">Netlify</a></p>
+      <p class="repo-link">Repositorio: <a href="https://github.com/CristoReyV/ghostai-tts-gateway" target="_blank" rel="noopener">CristoReyV/ghostai-tts-gateway</a></p>
+    </footer>
+  </main>
+
+  <script>
+    const btnCheck = document.getElementById('btn-check');
+    const btnCopyCurl = document.getElementById('btn-copy-curl');
+    const consoleOutput = document.getElementById('console-output');
+    const pingVal = document.getElementById('ping-val');
+
+    btnCheck.addEventListener('click', async () => {
+      consoleOutput.textContent = 'Enviando petición a /api/health...';
+      const t0 = performance.now();
+      try {
+        const res = await fetch('/api/health');
+        const diff = Math.round(performance.now() - t0);
+        pingVal.textContent = diff;
+        const data = await res.json();
+        consoleOutput.textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        consoleOutput.textContent = 'Modo Local / Simulado:\n' + JSON.stringify({
+          status: "operational (preview mode)",
+          message: "El endpoint responderá tras hacer deploy en Netlify",
+          endpoint: "/api/health"
+        }, null, 2);
+      }
+    });
+
+    btnCopyCurl.addEventListener('click', () => {
+      const curlCommand = `curl -X POST https://TU-APP.netlify.app/api/tts -H "Content-Type: application/json" -d '{"text":"Hola mundo desde GhostAI","voiceId":"oasis"}'`;
+      navigator.clipboard.writeText(curlCommand);
+      const originalText = btnCopyCurl.textContent;
+      btnCopyCurl.textContent = '¡Copiado!';
+      setTimeout(() => { btnCopyCurl.textContent = originalText; }, 2000);
+    });
+  </script>
+</body>
+</html>

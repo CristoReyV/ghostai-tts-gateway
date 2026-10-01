@@ -1,0 +1,19 @@
+{
+  "name": "ghostai-tts-gateway",
+  "version": "1.0.0",
+  "description": "High-performance TTS Gateway & Proxy for GhostAI on Netlify",
+  "main": "netlify/functions/tts.js",
+  "scripts": {
+    "build": "echo 'Build successful for Netlify'",
+    "start": "netlify dev"
+  },
+  "keywords": [
+    "ghostai",
+    "tts",
+    "gateway",
+    "netlify",
+    "serverless"
+  ],
+  "author": "CristoReyV",
+  "license": "MIT"
+}

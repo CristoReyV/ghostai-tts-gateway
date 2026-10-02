@@ -50,7 +50,17 @@ async function handleElevenLabsError(res, requestId, durationMs) {
   let bodyText = "";
   try { bodyText = await res.text(); } catch (_) {}
 
+  if (res.status === 400 && bodyText.includes("api_key_id_used_as_api_key")) {
+    return makeError(
+      401,
+      ERROR_CODES.ELEVENLABS_UNAUTHORIZED,
+      "ElevenLabs API key is invalid: an API key ID was provided instead of the secret API key (starts with 'sk_').",
+      requestId
+    );
+  }
+
   const map = {
+    400: [400, ERROR_CODES.ELEVENLABS_UNPROCESSABLE, "ElevenLabs rejected the request parameters."],
     401: [401, ERROR_CODES.ELEVENLABS_UNAUTHORIZED, "ElevenLabs API key is invalid or missing."],
     403: [403, ERROR_CODES.ELEVENLABS_FORBIDDEN, "Access to this ElevenLabs resource is forbidden."],
     404: [404, ERROR_CODES.ELEVENLABS_NOT_FOUND, "ElevenLabs voice or model not found."],

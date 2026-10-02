@@ -1,0 +1,52 @@
+/**
+ * @file errors.js
+ * Normalised error codes and response builder for TTS Gateway.
+ */
+
+"use strict";
+
+/** @type {Record<string, string>} */
+const ERROR_CODES = {
+  VALIDATION_MISSING_PROVIDER: "VALIDATION_MISSING_PROVIDER",
+  VALIDATION_UNKNOWN_PROVIDER: "VALIDATION_UNKNOWN_PROVIDER",
+  VALIDATION_MISSING_VOICE_ID: "VALIDATION_MISSING_VOICE_ID",
+  VALIDATION_MISSING_TEXT: "VALIDATION_MISSING_TEXT",
+  VALIDATION_TEXT_TOO_LONG: "VALIDATION_TEXT_TOO_LONG",
+  VALIDATION_MISSING_MODEL_ID: "VALIDATION_MISSING_MODEL_ID",
+  VALIDATION_INVALID_OUTPUT_FORMAT: "VALIDATION_INVALID_OUTPUT_FORMAT",
+  GATEWAY_NOT_CONFIGURED: "GATEWAY_NOT_CONFIGURED",
+  ELEVENLABS_UNAUTHORIZED: "ELEVENLABS_UNAUTHORIZED",
+  ELEVENLABS_FORBIDDEN: "ELEVENLABS_FORBIDDEN",
+  ELEVENLABS_NOT_FOUND: "ELEVENLABS_NOT_FOUND",
+  ELEVENLABS_UNPROCESSABLE: "ELEVENLABS_UNPROCESSABLE",
+  ELEVENLABS_RATE_LIMIT: "ELEVENLABS_RATE_LIMIT",
+  ELEVENLABS_SERVER_ERROR: "ELEVENLABS_SERVER_ERROR",
+  ELEVENLABS_TIMEOUT: "ELEVENLABS_TIMEOUT",
+  ELEVENLABS_NETWORK_ERROR: "ELEVENLABS_NETWORK_ERROR",
+  INTERNAL_ERROR: "INTERNAL_ERROR",
+  METHOD_NOT_ALLOWED: "METHOD_NOT_ALLOWED",
+};
+
+/**
+ * @typedef {{ code: string; message: string }} ErrorBody
+ * @typedef {{ statusCode: number; error: ErrorBody; requestId: string }} NormalisedError
+ */
+
+/**
+ * Builds a normalised error payload.  Never includes stack traces or secrets.
+ *
+ * @param {number} statusCode
+ * @param {string} code
+ * @param {string} message
+ * @param {string} requestId
+ * @returns {NormalisedError}
+ */
+function makeError(statusCode, code, message, requestId) {
+  return {
+    statusCode,
+    error: { code, message },
+    requestId,
+  };
+}
+
+module.exports = { ERROR_CODES, makeError };

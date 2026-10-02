@@ -1,19 +1,28 @@
 {
   "name": "ghostai-tts-gateway",
   "version": "1.0.0",
-  "description": "High-performance TTS Gateway & Proxy for GhostAI on Netlify",
-  "main": "netlify/functions/tts.js",
+  "description": "GhostAI TTS Gateway — ElevenLabs proxy for Netlify Functions",
+  "main": "netlify/functions/tts-generate.js",
   "scripts": {
-    "build": "echo 'Build successful for Netlify'",
-    "start": "netlify dev"
+    "build": "echo 'No build step required — Netlify executes functions directly.'",
+    "start": "netlify dev",
+    "test": "jest --runInBand",
+    "test:coverage": "jest --runInBand --coverage",
+    "lint": "echo 'No linter configured yet. Add eslint if needed.'"
   },
-  "keywords": [
-    "ghostai",
-    "tts",
-    "gateway",
-    "netlify",
-    "serverless"
-  ],
+  "keywords": ["ghostai", "tts", "gateway", "netlify", "elevenlabs", "serverless"],
   "author": "CristoReyV",
-  "license": "MIT"
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": ["**/tests/**/*.test.js"],
+    "clearMocks": true
+  },
+  "devDependencies": {
+    "@jest/globals": "^30.0.0",
+    "jest": "^30.0.0"
+  }
 }

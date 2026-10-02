@@ -2,6 +2,7 @@
   publish = "public"
   functions = "netlify/functions"
 
+# ─── Health endpoints ───────────────────────────────────────────────────────
 [[redirects]]
   from = "/health"
   to = "/.netlify/functions/health"
@@ -15,6 +16,32 @@
   force = true
 
 [[redirects]]
+  from = "/api/tts/health"
+  to = "/.netlify/functions/health"
+  status = 200
+  force = true
+
+# ─── TTS Gateway endpoints ──────────────────────────────────────────────────
+[[redirects]]
+  from = "/api/tts/generate"
+  to = "/.netlify/functions/tts-generate"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/tts/voices"
+  to = "/.netlify/functions/tts-voices"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/tts/models"
+  to = "/.netlify/functions/tts-models"
+  status = 200
+  force = true
+
+# ─── Legacy stub (kept for backwards-compat, now a GET info endpoint) ───────
+[[redirects]]
   from = "/tts"
   to = "/.netlify/functions/tts"
   status = 200
@@ -26,10 +53,13 @@
   status = 200
   force = true
 
+# ─── Global headers ─────────────────────────────────────────────────────────
+# NOTE: Fine-grained CORS (GHOSTAI_ALLOWED_ORIGINS) is handled inside each
+# function. These headers are a safe baseline for static assets.
 [[headers]]
   for = "/*"
   [headers.values]
-    Access-Control-Allow-Origin = "*"
-    Access-Control-Allow-Methods = "GET, POST, OPTIONS"
-    Access-Control-Allow-Headers = "Content-Type, Authorization"
     X-GhostAI-Gateway = "true"
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"

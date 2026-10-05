@@ -303,10 +303,243 @@ async function listModels(requestId) {
   }
 }
 
+/**
+ * Queries the ElevenLabs public shared-voices library (/v1/shared-voices) and normalizes output.
+ * STRICTLY READ-ONLY GET operation.
+ *
+ * @param {{
+ *   language?: string;
+ *   pageSize?: number;
+ *   page?: number;
+ *   sort?: string;
+ *   search?: string;
+ *   accent?: string;
+ *   locale?: string;
+ *   gender?: string;
+ *   age?: string;
+ *   use_cases?: string;
+ * }} params
+ * @param {string} requestId
+ * @returns {Promise<
+ *   | { ok: true; voices: unknown[]; page: number; pageSize: number; hasMore: boolean; totalCount: number }
+ *   | { ok: false; statusCode: number; error: { code: string; message: string }; requestId: string }
+ * >}
+ */
+async function getVoiceLibrary(params = {}, requestId) {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    return { ok: false, ...makeError(503, ERROR_CODES.GATEWAY_NOT_CONFIGURED, "TTS provider is not configured.", requestId) };
+  }
+
+  const {
+    language = "es",
+    pageSize = 24,
+    page = 0,
+    sort = "usage_character_count_1y",
+    search,
+    accent,
+    locale,
+    gender,
+    age,
+    use_cases,
+  } = params;
+
+  const validPageSize = Math.max(1, Math.min(Number(pageSize) || 24, 100));
+  const validPage = Math.max(0, Number(page) || 0);
+
+  const searchParams = new URLSearchParams();
+  searchParams.set("page_size", String(validPageSize));
+  searchParams.set("page", String(validPage));
+  if (sort) searchParams.set("sort", String(sort));
+  if (language) searchParams.set("language", String(language));
+  if (search && typeof search === "string" && search.trim()) {
+    searchParams.set("search", search.trim());
+  }
+  if (accent && typeof accent === "string" && accent.trim() && accent !== "all") {
+    searchParams.set("accent", accent.trim());
+  }
+  if (locale && typeof locale === "string" && locale.trim() && locale !== "all") {
+    searchParams.set("locale", locale.trim());
+  }
+  if (gender && typeof gender === "string" && gender.trim() && gender !== "all") {
+    searchParams.set("gender", gender.trim());
+  }
+  if (age && typeof age === "string" && age.trim() && age !== "all") {
+    searchParams.set("age", age.trim());
+  }
+  if (use_cases && typeof use_cases === "string" && use_cases.trim() && use_cases !== "all") {
+    searchParams.set("use_cases", use_cases.trim());
+  }
+
+  const url = `${ELEVENLABS_BASE_URL}/v1/shared-voices?${searchParams.toString()}`;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  const startMs = Date.now();
+
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "xi-api-key": apiKey,
+        Accept: "application/json",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      return { ok: false, ...(await handleElevenLabsError(res, requestId, Date.now() - startMs)) };
+    }
+
+    const raw = await res.json();
+    const rawVoices = Array.isArray(raw.voices) ? raw.voices : [];
+
+    const voices = rawVoices.map((v) => ({
+      voiceId: v.voice_id,
+      publicOwnerId: v.public_owner_id || null,
+      name: v.name || "",
+      language: v.language || language,
+      locale: v.locale || null,
+      accent: v.accent || null,
+      gender: v.gender || null,
+      age: v.age || null,
+      useCase: v.use_case || null,
+      descriptive: v.descriptive || null,
+      description: v.description || "",
+      category: v.category || null,
+      previewUrl: v.preview_url || null,
+      clonedByCount: typeof v.cloned_by_count === "number" ? v.cloned_by_count : 0,
+      usageCharacterCount1y: typeof v.usage_character_count_1y === "number" ? v.usage_character_count_1y : 0,
+      featured: !!v.featured,
+      freeUsersAllowed: v.free_users_allowed !== false,
+      liveModerationEnabled: !!v.live_moderation_enabled,
+      noticePeriod: typeof v.notice_period === "number" ? v.notice_period : null,
+      rate: typeof v.rate === "number" ? v.rate : null,
+      verifiedLanguages: Array.isArray(v.verified_languages)
+        ? v.verified_languages.map((vl) => ({
+            language: vl.language,
+            modelId: vl.model_id,
+            accent: vl.accent,
+            locale: vl.locale,
+            previewUrl: vl.preview_url,
+          }))
+        : [],
+    }));
+
+    return {
+      ok: true,
+      voices,
+      page: validPage,
+      pageSize: validPageSize,
+      hasMore: !!raw.has_more,
+      totalCount: typeof raw.total_count === "number" ? raw.total_count : voices.length,
+    };
+  } catch (err) {
+    clearTimeout(timer);
+    if (err.name === "AbortError") {
+      return { ok: false, ...makeError(504, ERROR_CODES.ELEVENLABS_TIMEOUT, "Voice Library request to ElevenLabs timed out.", requestId) };
+    }
+    return { ok: false, ...makeError(502, ERROR_CODES.ELEVENLABS_NETWORK_ERROR, "Network error fetching Voice Library.", requestId) };
+  }
+}
+
+/**
+ * Adds a shared voice from the public library to the user's account collection.
+ * Uses POST /v1/voices/add/{public_user_id}/{voice_id}
+ *
+ * @param {{
+ *   voiceId: string;
+ *   publicOwnerId: string;
+ *   name: string;
+ * }} request
+ * @param {string} requestId
+ * @returns {Promise<
+ *   | { ok: true; voiceId: string; name: string; message: string }
+ *   | { ok: false; statusCode: number; error: { code: string; message: string }; requestId: string }
+ * >}
+ */
+async function addSharedVoice(request, requestId) {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    return { ok: false, ...makeError(503, ERROR_CODES.GATEWAY_NOT_CONFIGURED, "TTS provider is not configured.", requestId) };
+  }
+
+  const { voiceId, publicOwnerId, name } = request || {};
+  if (!voiceId || typeof voiceId !== "string" || !voiceId.trim()) {
+    return { ok: false, ...makeError(400, ERROR_CODES.VALIDATION_MISSING_FIELD, "Field 'voiceId' is required.", requestId) };
+  }
+  if (!publicOwnerId || typeof publicOwnerId !== "string" || !publicOwnerId.trim()) {
+    return { ok: false, ...makeError(400, ERROR_CODES.VALIDATION_MISSING_FIELD, "Field 'publicOwnerId' is required.", requestId) };
+  }
+  if (!name || typeof name !== "string" || !name.trim()) {
+    return { ok: false, ...makeError(400, ERROR_CODES.VALIDATION_MISSING_FIELD, "Field 'name' is required.", requestId) };
+  }
+
+  // Sanitize name: max 100 characters, trimmed
+  const sanitizedName = name.trim().slice(0, 100);
+
+  const url = `${ELEVENLABS_BASE_URL}/v1/voices/add/${encodeURIComponent(publicOwnerId.trim())}/${encodeURIComponent(voiceId.trim())}`;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  const startMs = Date.now();
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "xi-api-key": apiKey,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ new_name: sanitizedName }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      return { ok: false, ...(await handleElevenLabsError(res, requestId, Date.now() - startMs)) };
+    }
+
+    const raw = await res.json().catch(() => ({}));
+    // Invalidate cached account voices so subsequent calls to listVoices reflect the newly added voice
+    voicesCache = null;
+
+    return {
+      ok: true,
+      voiceId: raw.voice_id || voiceId.trim(),
+      name: sanitizedName,
+      message: "Voice added successfully to account",
+    };
+  } catch (err) {
+    clearTimeout(timer);
+    if (err.name === "AbortError") {
+      return { ok: false, ...makeError(504, ERROR_CODES.ELEVENLABS_TIMEOUT, "Add shared voice request timed out.", requestId) };
+    }
+    return { ok: false, ...makeError(502, ERROR_CODES.ELEVENLABS_NETWORK_ERROR, "Network error adding shared voice.", requestId) };
+  }
+}
+
+/** Legacy probe backward-compatibility wrapper */
+async function probeSharedVoices(params = {}, requestId) {
+  return getVoiceLibrary(params, requestId);
+}
+
 /** Invalidate caches (used in tests) */
 function _clearCache() {
   voicesCache = null;
   modelsCache = null;
 }
 
-module.exports = { generate, listVoices, listModels, _clearCache };
+module.exports = {
+  generate,
+  listVoices,
+  listModels,
+  getVoiceLibrary,
+  addSharedVoice,
+  probeSharedVoices,
+  _clearCache,
+};
+
+

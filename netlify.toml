@@ -40,6 +40,19 @@
   status = 200
   force = true
 
+[[redirects]]
+  from = "/api/tts/voice-library"
+  to = "/.netlify/functions/tts-voice-library"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/tts/voices/shared/add"
+  to = "/.netlify/functions/tts-voices-shared-add"
+  status = 200
+  force = true
+
+
 # ─── Legacy stub (kept for backwards-compat, now a GET info endpoint) ───────
 [[redirects]]
   from = "/tts"

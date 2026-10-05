@@ -62,6 +62,7 @@ async function handleElevenLabsError(res, requestId, durationMs) {
   const map = {
     400: [400, ERROR_CODES.ELEVENLABS_UNPROCESSABLE, "ElevenLabs rejected the request parameters."],
     401: [401, ERROR_CODES.ELEVENLABS_UNAUTHORIZED, "ElevenLabs API key is invalid or missing."],
+    402: [402, ERROR_CODES.ELEVENLABS_PAYMENT_REQUIRED, "Esta voz o función requiere un plan de ElevenLabs compatible."],
     403: [403, ERROR_CODES.ELEVENLABS_FORBIDDEN, "Access to this ElevenLabs resource is forbidden."],
     404: [404, ERROR_CODES.ELEVENLABS_NOT_FOUND, "ElevenLabs voice or model not found."],
     422: [422, ERROR_CODES.ELEVENLABS_UNPROCESSABLE, "ElevenLabs rejected the request parameters."],

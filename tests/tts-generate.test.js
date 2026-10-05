@@ -183,6 +183,22 @@ describe("POST /api/tts/generate — handler", () => {
     expect(body.error.code).toBe("ELEVENLABS_UNAUTHORIZED");
   });
 
+  test("propagates 402 payment required from provider", async () => {
+    getProvider.mockReturnValue({
+      generate: jest.fn().mockResolvedValue({
+        ok: false,
+        statusCode: 402,
+        error: { code: "ELEVENLABS_PAYMENT_REQUIRED", message: "Esta voz o función requiere un plan de ElevenLabs compatible." },
+        requestId: "r-pay",
+      }),
+    });
+    const res = await handler(makeEvent("POST", VALID_BODY));
+    const body = JSON.parse(res.body);
+    expect(res.statusCode).toBe(402);
+    expect(body.error.code).toBe("ELEVENLABS_PAYMENT_REQUIRED");
+    expect(body.error.message).toBe("Esta voz o función requiere un plan de ElevenLabs compatible.");
+  });
+
   test("propagates 429 from provider", async () => {
     getProvider.mockReturnValue({
       generate: jest.fn().mockResolvedValue({

@@ -103,6 +103,15 @@ describe("ElevenLabs provider — generate()", () => {
     expect(result.statusCode).toBe(401);
   });
 
+  test("returns ELEVENLABS_PAYMENT_REQUIRED on 402", async () => {
+    mockFetch(402, { detail: "payment required" });
+    const result = await generate(BASE_REQ);
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe("ELEVENLABS_PAYMENT_REQUIRED");
+    expect(result.statusCode).toBe(402);
+    expect(result.error.message).toBe("Esta voz o función requiere un plan de ElevenLabs compatible.");
+  });
+
   test("returns ELEVENLABS_FORBIDDEN on 403", async () => {
     mockFetch(403, { detail: "forbidden" });
     const result = await generate(BASE_REQ);

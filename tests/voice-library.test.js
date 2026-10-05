@@ -13,10 +13,16 @@ const { getProvider } = require("../netlify/functions/providers");
 const { handler: voiceLibraryHandler } = require("../netlify/functions/tts-voice-library");
 const { handler: sharedAddHandler } = require("../netlify/functions/tts-voices-shared-add");
 
-function makeEvent(method, params = {}, body = null) {
+const TEST_OPERATOR_TOKEN = "test-operator-token";
+
+function makeEvent(method, params = {}, body = null, auth = `Bearer ${TEST_OPERATOR_TOKEN}`) {
+  const headers = { origin: "https://studio.ghostai.io" };
+  if (auth !== null && auth !== undefined) {
+    headers.authorization = auth;
+  }
   return {
     httpMethod: method,
-    headers: { origin: "https://studio.ghostai.io" },
+    headers,
     queryStringParameters: params,
     body: body ? JSON.stringify(body) : null,
   };
@@ -179,6 +185,7 @@ describe("Gateway: POST /api/tts/voices/shared/add", () => {
   let mockAddSharedVoice;
 
   beforeEach(() => {
+    process.env.GHOSTAI_STUDIO_AUTH_TOKEN = TEST_OPERATOR_TOKEN;
     mockAddSharedVoice = jest.fn().mockResolvedValue({
       ok: true,
       voiceId: "target-voice-123",
@@ -191,9 +198,45 @@ describe("Gateway: POST /api/tts/voices/shared/add", () => {
     });
   });
 
-  test("returns 204 for OPTIONS preflight", async () => {
-    const res = await sharedAddHandler(makeEvent("OPTIONS"));
+  afterEach(() => {
+    delete process.env.GHOSTAI_STUDIO_AUTH_TOKEN;
+  });
+
+  test("returns 204 for OPTIONS preflight without auth", async () => {
+    const res = await sharedAddHandler(makeEvent("OPTIONS", {}, null, null));
     expect(res.statusCode).toBe(204);
+    expect(mockAddSharedVoice).not.toHaveBeenCalled();
+  });
+
+  test("rejects POST without auth with 401 AUTH_REQUIRED and provider not called", async () => {
+    const res = await sharedAddHandler(
+      makeEvent("POST", {}, { voiceId: "v-1", publicOwnerId: "owner-1", name: "Mateo" }, null)
+    );
+    expect(res.statusCode).toBe(401);
+    const body = JSON.parse(res.body);
+    expect(body.error.code).toBe("AUTH_REQUIRED");
+    expect(mockAddSharedVoice).not.toHaveBeenCalled();
+  });
+
+  test("rejects POST with incorrect bearer token with 401 AUTH_INVALID and provider not called", async () => {
+    const res = await sharedAddHandler(
+      makeEvent("POST", {}, { voiceId: "v-1", publicOwnerId: "owner-1", name: "Mateo" }, "Bearer bad-token")
+    );
+    expect(res.statusCode).toBe(401);
+    const body = JSON.parse(res.body);
+    expect(body.error.code).toBe("AUTH_INVALID");
+    expect(mockAddSharedVoice).not.toHaveBeenCalled();
+  });
+
+  test("rejects POST with 500 when server GHOSTAI_STUDIO_AUTH_TOKEN is missing (fail closed)", async () => {
+    delete process.env.GHOSTAI_STUDIO_AUTH_TOKEN;
+    const res = await sharedAddHandler(
+      makeEvent("POST", {}, { voiceId: "v-1", publicOwnerId: "owner-1", name: "Mateo" })
+    );
+    expect(res.statusCode).toBe(500);
+    const body = JSON.parse(res.body);
+    expect(body.error.code).toBe("GATEWAY_NOT_CONFIGURED");
+    expect(mockAddSharedVoice).not.toHaveBeenCalled();
   });
 
   test("rejects GET with 405 Method Not Allowed", async () => {

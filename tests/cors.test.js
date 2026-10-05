@@ -20,15 +20,18 @@ describe("CORS utility", () => {
     expect(resolveOrigin("https://studio.ghostai.io")).toBe("https://studio.ghostai.io");
   });
 
-  test("rejects non-listed origin when allowlist is set", () => {
+  test("rejects non-listed origin when allowlist is set by returning null and omitting ACAO", () => {
     process.env.GHOSTAI_ALLOWED_ORIGINS = "https://studio.ghostai.io";
-    expect(resolveOrigin("https://attacker.example.com")).toBe("https://studio.ghostai.io");
+    expect(resolveOrigin("https://attacker.example.com")).toBeNull();
+    const headers = corsHeaders("https://attacker.example.com");
+    expect(headers["Access-Control-Allow-Origin"]).toBeUndefined();
   });
 
-  test("corsHeaders includes required CORS fields", () => {
+  test("corsHeaders includes required CORS fields and Authorization", () => {
     const h = corsHeaders(undefined);
-    expect(h["Access-Control-Allow-Origin"]).toBeTruthy();
+    expect(h["Access-Control-Allow-Origin"]).toBe("*");
     expect(h["Access-Control-Allow-Methods"]).toContain("POST");
+    expect(h["Access-Control-Allow-Headers"]).toContain("Authorization");
     expect(h["Access-Control-Allow-Headers"]).toContain("Content-Type");
     expect(h["X-GhostAI-Gateway"]).toBe("true");
   });

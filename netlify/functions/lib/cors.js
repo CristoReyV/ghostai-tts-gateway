@@ -18,8 +18,9 @@ function resolveOrigin(requestOrigin) {
   const allowedEnv = process.env.GHOSTAI_ALLOWED_ORIGINS || "";
   if (!allowedEnv) return "*";
   const allowed = allowedEnv.split(",").map((s) => s.trim()).filter(Boolean);
+  if (allowed.length === 0) return "*";
   if (requestOrigin && allowed.includes(requestOrigin)) return requestOrigin;
-  return allowed[0] || "*";
+  return null;
 }
 
 /**
@@ -29,14 +30,20 @@ function resolveOrigin(requestOrigin) {
  * @returns {Record<string, string>}
  */
 function corsHeaders(requestOrigin) {
-  return {
-    "Access-Control-Allow-Origin": resolveOrigin(requestOrigin),
+  const resolved = resolveOrigin(requestOrigin);
+  const headers = {
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Expose-Headers":
       "X-TTS-Provider, X-TTS-Request-ID, X-TTS-Output-Format, X-GhostAI-Gateway",
     "X-GhostAI-Gateway": "true",
   };
+
+  if (resolved !== null) {
+    headers["Access-Control-Allow-Origin"] = resolved;
+  }
+
+  return headers;
 }
 
 /**

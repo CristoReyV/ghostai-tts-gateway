@@ -13,6 +13,7 @@ const { corsHeaders, preflightResponse } = require("./lib/cors");
 const { makeError, ERROR_CODES } = require("./lib/errors");
 const { logRequestStart } = require("./lib/logger");
 const { validateGenerateRequest } = require("./lib/validate");
+const { requireOperatorAuth } = require("./lib/auth");
 const { getProvider } = require("./providers");
 
 /**
@@ -47,6 +48,12 @@ exports.handler = async (event) => {
   }
 
   const requestId = crypto.randomUUID();
+
+  // ── Operator Auth guard ─────────────────────────────────────────────────────
+  const authResult = requireOperatorAuth(event, requestId);
+  if (!authResult.ok) {
+    return jsonErrorResponse(authResult, origin);
+  }
 
   // ── Parse body ──────────────────────────────────────────────────────────────
   let body;

@@ -12,6 +12,7 @@
 const crypto = require("crypto");
 const { corsHeaders, preflightResponse } = require("./lib/cors");
 const { makeError, ERROR_CODES } = require("./lib/errors");
+const { requireOperatorAuth } = require("./lib/auth");
 const { getProvider } = require("./providers");
 
 function jsonResponse(statusCode, body, extraHeaders, origin) {
@@ -39,11 +40,16 @@ exports.handler = async (event) => {
   }
 
   const requestId = crypto.randomUUID();
-  const provider = getProvider("elevenlabs");
 
-  if (!provider || typeof provider.addSharedVoice !== "function") {
-    const err = makeError(500, ERROR_CODES.GATEWAY_NOT_CONFIGURED, "Add shared voice is not supported by this provider.", requestId);
-    return jsonResponse(err.statusCode, err, { "X-TTS-Request-ID": requestId }, origin);
+  // ── Operator Auth guard ─────────────────────────────────────────────────────
+  const authResult = requireOperatorAuth(event, requestId);
+  if (!authResult.ok) {
+    return jsonResponse(
+      authResult.statusCode,
+      { error: authResult.error, requestId },
+      { "X-TTS-Request-ID": requestId },
+      origin
+    );
   }
 
   let body = {};
@@ -75,6 +81,12 @@ exports.handler = async (event) => {
   const safeIdRegex = /^[a-zA-Z0-9_-]{1,128}$/;
   if (!safeIdRegex.test(voiceId.trim()) || !safeIdRegex.test(publicOwnerId.trim())) {
     const err = makeError(400, ERROR_CODES.VALIDATION_INVALID_PARAM, "Identifiers 'voiceId' and 'publicOwnerId' contain invalid characters.", requestId);
+    return jsonResponse(err.statusCode, err, { "X-TTS-Request-ID": requestId }, origin);
+  }
+
+  const provider = getProvider("elevenlabs");
+  if (!provider || typeof provider.addSharedVoice !== "function") {
+    const err = makeError(500, ERROR_CODES.GATEWAY_NOT_CONFIGURED, "Add shared voice is not supported by this provider.", requestId);
     return jsonResponse(err.statusCode, err, { "X-TTS-Request-ID": requestId }, origin);
   }
 

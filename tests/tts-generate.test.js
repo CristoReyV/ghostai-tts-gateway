@@ -18,10 +18,21 @@ const { handler } = require("../netlify/functions/tts-generate");
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function makeEvent(method, body, origin = "https://studio.ghostai.io") {
+const TEST_OPERATOR_TOKEN = "test-operator-token";
+
+function makeEvent(
+  method,
+  body,
+  origin = "https://studio.ghostai.io",
+  auth = `Bearer ${TEST_OPERATOR_TOKEN}`
+) {
+  const headers = { origin };
+  if (auth !== null && auth !== undefined) {
+    headers.authorization = auth;
+  }
   return {
     httpMethod: method,
-    headers: { origin },
+    headers,
     body: body ? JSON.stringify(body) : null,
     queryStringParameters: {},
   };
@@ -40,22 +51,64 @@ const FAKE_AUDIO = Buffer.from([0x49, 0x44, 0x33, 0x04]);
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe("POST /api/tts/generate — handler", () => {
+  let mockGenerate;
+
   beforeEach(() => {
+    process.env.GHOSTAI_STUDIO_AUTH_TOKEN = TEST_OPERATOR_TOKEN;
+    mockGenerate = jest.fn().mockResolvedValue({
+      ok: true,
+      audioBuffer: FAKE_AUDIO,
+      contentType: "audio/mpeg",
+      durationMs: 120,
+      responseBytes: FAKE_AUDIO.byteLength,
+    });
     getProvider.mockReturnValue({
-      generate: jest.fn().mockResolvedValue({
-        ok: true,
-        audioBuffer: FAKE_AUDIO,
-        contentType: "audio/mpeg",
-        durationMs: 120,
-        responseBytes: FAKE_AUDIO.byteLength,
-      }),
+      generate: mockGenerate,
     });
   });
 
-  test("returns 204 for OPTIONS preflight", async () => {
-    const res = await handler(makeEvent("OPTIONS", null));
+  afterEach(() => {
+    delete process.env.GHOSTAI_STUDIO_AUTH_TOKEN;
+  });
+
+  test("returns 204 for OPTIONS preflight without auth", async () => {
+    const res = await handler(makeEvent("OPTIONS", null, "https://studio.ghostai.io", null));
     expect(res.statusCode).toBe(204);
     expect(res.headers["Access-Control-Allow-Origin"]).toBeTruthy();
+    expect(mockGenerate).not.toHaveBeenCalled();
+  });
+
+  test("rejects POST without auth with 401 AUTH_REQUIRED and provider not called", async () => {
+    const res = await handler(makeEvent("POST", VALID_BODY, "https://studio.ghostai.io", null));
+    expect(res.statusCode).toBe(401);
+    const body = JSON.parse(res.body);
+    expect(body.error.code).toBe("AUTH_REQUIRED");
+    expect(mockGenerate).not.toHaveBeenCalled();
+  });
+
+  test("rejects POST with incorrect bearer token with 401 AUTH_INVALID and provider not called", async () => {
+    const res = await handler(makeEvent("POST", VALID_BODY, "https://studio.ghostai.io", "Bearer wrong-token"));
+    expect(res.statusCode).toBe(401);
+    const body = JSON.parse(res.body);
+    expect(body.error.code).toBe("AUTH_INVALID");
+    expect(mockGenerate).not.toHaveBeenCalled();
+  });
+
+  test("rejects POST with non-bearer scheme with 401 AUTH_INVALID and provider not called", async () => {
+    const res = await handler(makeEvent("POST", VALID_BODY, "https://studio.ghostai.io", "Basic dXNlcjpwYXNz"));
+    expect(res.statusCode).toBe(401);
+    const body = JSON.parse(res.body);
+    expect(body.error.code).toBe("AUTH_INVALID");
+    expect(mockGenerate).not.toHaveBeenCalled();
+  });
+
+  test("rejects POST with 500 when server GHOSTAI_STUDIO_AUTH_TOKEN is missing (fail closed)", async () => {
+    delete process.env.GHOSTAI_STUDIO_AUTH_TOKEN;
+    const res = await handler(makeEvent("POST", VALID_BODY));
+    expect(res.statusCode).toBe(500);
+    const body = JSON.parse(res.body);
+    expect(body.error.code).toBe("GATEWAY_NOT_CONFIGURED");
+    expect(mockGenerate).not.toHaveBeenCalled();
   });
 
   test("returns 405 for GET", async () => {
@@ -164,10 +217,13 @@ describe("POST /api/tts/generate — handler", () => {
     delete process.env.ELEVENLABS_API_KEY;
   });
 
-  test("returns 400 for invalid JSON body", async () => {
+  test("returns 400 for invalid JSON body when authenticated", async () => {
     const event = {
       httpMethod: "POST",
-      headers: { origin: "https://studio.ghostai.io" },
+      headers: {
+        origin: "https://studio.ghostai.io",
+        authorization: `Bearer ${TEST_OPERATOR_TOKEN}`,
+      },
       body: "not-json-{",
       queryStringParameters: {},
     };

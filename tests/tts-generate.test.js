@@ -15,20 +15,29 @@ jest.mock("../netlify/functions/providers", () => ({
 
 const { getProvider } = require("../netlify/functions/providers");
 const { handler } = require("../netlify/functions/tts-generate");
+const { issueByokCookie, BYOK_COOKIE_NAME } = require("../netlify/functions/lib/byok");
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const TEST_OPERATOR_TOKEN = "test-operator-token";
+const TEST_KEY_HEX = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+const TEST_USER_KEY = "sk_user_valid_test_key_1234567890";
+
+let VALID_COOKIE_HEADER = "";
 
 function makeEvent(
   method,
   body,
   origin = "https://studio.ghostai.io",
-  auth = `Bearer ${TEST_OPERATOR_TOKEN}`
+  auth = `Bearer ${TEST_OPERATOR_TOKEN}`,
+  cookie = VALID_COOKIE_HEADER
 ) {
   const headers = { origin };
   if (auth !== null && auth !== undefined) {
     headers.authorization = auth;
+  }
+  if (cookie !== null && cookie !== undefined) {
+    headers.cookie = cookie;
   }
   return {
     httpMethod: method,
@@ -55,6 +64,9 @@ describe("POST /api/tts/generate — handler", () => {
 
   beforeEach(() => {
     process.env.GHOSTAI_STUDIO_AUTH_TOKEN = TEST_OPERATOR_TOKEN;
+    process.env.GHOSTAI_CREDENTIAL_ENCRYPTION_KEY = TEST_KEY_HEX;
+    VALID_COOKIE_HEADER = issueByokCookie(TEST_USER_KEY).split(";")[0];
+
     mockGenerate = jest.fn().mockResolvedValue({
       ok: true,
       audioBuffer: FAKE_AUDIO,
@@ -69,6 +81,7 @@ describe("POST /api/tts/generate — handler", () => {
 
   afterEach(() => {
     delete process.env.GHOSTAI_STUDIO_AUTH_TOKEN;
+    delete process.env.GHOSTAI_CREDENTIAL_ENCRYPTION_KEY;
   });
 
   test("returns 204 for OPTIONS preflight without auth", async () => {
@@ -245,5 +258,77 @@ describe("POST /api/tts/generate — handler", () => {
     };
     const res = await handler(event);
     expect(res.statusCode).toBe(400);
+  });
+
+  // ─── BYOK Tests ─────────────────────────────────────────────────────────────
+
+  test("rejects POST without BYOK cookie with 428 ELEVENLABS_NOT_CONNECTED and provider not called", async () => {
+    const res = await handler(makeEvent("POST", VALID_BODY, "https://studio.ghostai.io", `Bearer ${TEST_OPERATOR_TOKEN}`, null));
+    expect(res.statusCode).toBe(428);
+    const body = JSON.parse(res.body);
+    expect(body.error.code).toBe("ELEVENLABS_NOT_CONNECTED");
+    expect(body.error.message).toContain("Conecta tu cuenta de ElevenLabs antes de generar");
+    expect(mockGenerate).not.toHaveBeenCalled();
+  });
+
+  test("rejects POST with tampered BYOK cookie with 428 and expires the cookie", async () => {
+    const tampered = `${BYOK_COOKIE_NAME}=v1.tampered.bad.tag`;
+    const res = await handler(makeEvent("POST", VALID_BODY, "https://studio.ghostai.io", `Bearer ${TEST_OPERATOR_TOKEN}`, tampered));
+    expect(res.statusCode).toBe(428);
+    const body = JSON.parse(res.body);
+    expect(body.error.code).toBe("ELEVENLABS_NOT_CONNECTED");
+    expect(res.headers["Set-Cookie"]).toContain("Max-Age=0");
+    expect(mockGenerate).not.toHaveBeenCalled();
+  });
+
+  test("NEVER falls back to process.env.ELEVENLABS_API_KEY when cookie is absent", async () => {
+    process.env.ELEVENLABS_API_KEY = "sk-ghostai-company-key-must-not-be-used";
+    const res = await handler(makeEvent("POST", VALID_BODY, "https://studio.ghostai.io", `Bearer ${TEST_OPERATOR_TOKEN}`, null));
+    expect(res.statusCode).toBe(428);
+    const body = JSON.parse(res.body);
+    expect(body.error.code).toBe("ELEVENLABS_NOT_CONNECTED");
+    expect(mockGenerate).not.toHaveBeenCalled();
+    delete process.env.ELEVENLABS_API_KEY;
+  });
+
+  test("provider receives the decrypted user apiKey from the BYOK cookie", async () => {
+    const res = await handler(makeEvent("POST", VALID_BODY));
+    expect(res.statusCode).toBe(200);
+    expect(mockGenerate).toHaveBeenCalledTimes(1);
+    const callArg = mockGenerate.mock.calls[0][0];
+    expect(callArg.apiKey).toBe(TEST_USER_KEY);
+  });
+
+  test("rejects payload containing forbidden credential fields in body (apiKey, elevenlabsKey, etc.)", async () => {
+    const sneakyBody = { ...VALID_BODY, apiKey: "sk-sneaky-key" };
+    const res = await handler(makeEvent("POST", sneakyBody));
+    expect(res.statusCode).toBe(400);
+    const body = JSON.parse(res.body);
+    expect(body.error.code).toBe("VALIDATION_FORBIDDEN_FIELD");
+    expect(mockGenerate).not.toHaveBeenCalled();
+  });
+
+  test("clears cookie and maps message when provider returns 401 (revoked user key)", async () => {
+    mockGenerate.mockResolvedValueOnce({
+      ok: false,
+      statusCode: 401,
+      error: { code: "ELEVENLABS_UNAUTHORIZED", message: "Unauthorized" },
+      requestId: "r-revoked",
+    });
+
+    const res = await handler(makeEvent("POST", VALID_BODY));
+    expect(res.statusCode).toBe(401);
+    const body = JSON.parse(res.body);
+    expect(body.error.message).toContain("rechazó tu API key");
+    expect(res.headers["Set-Cookie"]).toContain("Max-Age=0");
+  });
+
+  test("returns 503 GATEWAY_NOT_CONFIGURED when server master encryption key is missing", async () => {
+    delete process.env.GHOSTAI_CREDENTIAL_ENCRYPTION_KEY;
+    const res = await handler(makeEvent("POST", VALID_BODY));
+    expect(res.statusCode).toBe(503);
+    const body = JSON.parse(res.body);
+    expect(body.error.code).toBe("GATEWAY_NOT_CONFIGURED");
+    expect(mockGenerate).not.toHaveBeenCalled();
   });
 });

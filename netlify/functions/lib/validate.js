@@ -23,6 +23,35 @@ const ALLOWED_OUTPUT_FORMATS = [
 const MAX_TEXT_LENGTH = Number(process.env.TTS_MAX_TEXT_LENGTH) || 5000;
 
 /**
+ * Payload field names that could smuggle a provider credential into /generate.
+ * Compared after lower-casing and stripping non-alphanumerics, so
+ * `apiKey`, `api_key`, `xi-api-key`, `elevenlabsKey`, `providerKey`… all match.
+ * The provider key MUST come exclusively from the BYOK session cookie.
+ */
+const FORBIDDEN_CREDENTIAL_FIELDS = new Set([
+  "apikey",
+  "xiapikey",
+  "elevenlabskey",
+  "elevenlabsapikey",
+  "providerkey",
+  "providerapikey",
+  "secretkey",
+]);
+
+/**
+ * @param {Record<string, unknown>} body
+ * @returns {string | null} offending field name, or null
+ */
+function findForbiddenCredentialField(body) {
+  if (!body || typeof body !== "object") return null;
+  for (const name of Object.keys(body)) {
+    const normalized = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (FORBIDDEN_CREDENTIAL_FIELDS.has(normalized)) return name;
+  }
+  return null;
+}
+
+/**
  * Validates the parsed request body for /api/tts/generate.
  * Returns an error object on failure, null on success.
  *
@@ -31,6 +60,15 @@ const MAX_TEXT_LENGTH = Number(process.env.TTS_MAX_TEXT_LENGTH) || 5000;
  * @returns {{ statusCode: number; error: { code: string; message: string }; requestId: string } | null}
  */
 function validateGenerateRequest(body, requestId) {
+  const forbidden = findForbiddenCredentialField(body);
+  if (forbidden) {
+    return makeError(
+      400,
+      ERROR_CODES.VALIDATION_FORBIDDEN_FIELD,
+      "Provider credentials are not accepted in the request body. Connect ElevenLabs via the BYOK connect endpoint.",
+      requestId
+    );
+  }
   if (!body.provider || typeof body.provider !== "string") {
     return makeError(400, ERROR_CODES.VALIDATION_MISSING_PROVIDER, "Field 'provider' is required.", requestId);
   }

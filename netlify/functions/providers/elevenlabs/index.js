@@ -78,12 +78,83 @@ async function handleElevenLabsError(res, requestId, durationMs) {
 }
 
 /**
+ * Verifies a candidate ElevenLabs API key by calling GET /v1/user/subscription.
+ * STRICTLY READ-ONLY GET. Never generates TTS, never synthesizes audio, never consumes credits.
+ *
+ * @param {string} apiKey
+ * @param {string} requestId
+ * @returns {Promise<
+ *   | { ok: true; tier: string; status: string }
+ *   | { ok: false; statusCode: number; error: { code: string; message: string }; requestId: string }
+ * >}
+ */
+async function verifyApiKey(apiKey, requestId) {
+  if (!apiKey || typeof apiKey !== "string" || !apiKey.trim()) {
+    return {
+      ok: false,
+      ...makeError(400, ERROR_CODES.ELEVENLABS_INVALID_API_KEY, "API key no puede estar vacía.", requestId),
+    };
+  }
+
+  const url = `${ELEVENLABS_BASE_URL}/v1/user/subscription`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  const startMs = Date.now();
+
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "xi-api-key": apiKey.trim(),
+        Accept: "application/json",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        return {
+          ok: false,
+          ...makeError(
+            401,
+            ERROR_CODES.ELEVENLABS_INVALID_API_KEY,
+            "API key de ElevenLabs inválida o sin permisos.",
+            requestId
+          ),
+        };
+      }
+      return { ok: false, ...(await handleElevenLabsError(res, requestId, Date.now() - startMs)) };
+    }
+
+    const raw = await res.json().catch(() => ({}));
+    return {
+      ok: true,
+      tier: (raw && typeof raw.tier === "string" ? raw.tier : "user"),
+      status: (raw && typeof raw.status === "string" ? raw.status : "active"),
+    };
+  } catch (err) {
+    clearTimeout(timer);
+    if (err.name === "AbortError") {
+      return { ok: false, ...makeError(504, ERROR_CODES.ELEVENLABS_TIMEOUT, "Request to ElevenLabs timed out.", requestId) };
+    }
+    return { ok: false, ...makeError(502, ERROR_CODES.ELEVENLABS_NETWORK_ERROR, "Network error reaching ElevenLabs.", requestId) };
+  }
+}
+
+/**
  * Generates TTS audio via ElevenLabs.
+ *
+ * CRITICAL BYOK REQUIREMENT:
+ * The API key must come EXCLUSIVELY from the authenticated user's BYOK
+ * session (`request.apiKey`). Never fall back to `process.env.ELEVENLABS_API_KEY`
+ * or any GhostAI-owned key.
  *
  * @param {{
  *   requestId: string;
  *   voiceId: string;
  *   text: string;
+ *   apiKey: string;
  *   modelId?: string;
  *   voiceSettings?: {
  *     stability?: number;
@@ -101,9 +172,17 @@ async function handleElevenLabsError(res, requestId, durationMs) {
  * >}
  */
 async function generate(request) {
-  const apiKey = getApiKey();
+  const apiKey = request && typeof request.apiKey === "string" ? request.apiKey.trim() : "";
   if (!apiKey) {
-    return { ok: false, ...makeError(503, ERROR_CODES.GATEWAY_NOT_CONFIGURED, "TTS provider is not configured.", request.requestId) };
+    return {
+      ok: false,
+      ...makeError(
+        428,
+        ERROR_CODES.ELEVENLABS_NOT_CONNECTED,
+        "Conecta tu cuenta de ElevenLabs antes de generar.",
+        request?.requestId || ""
+      ),
+    };
   }
 
   const {
@@ -461,7 +540,7 @@ async function getVoiceLibrary(params = {}, requestId) {
  * >}
  */
 async function addSharedVoice(request, requestId) {
-  const apiKey = getApiKey();
+  const apiKey = (request && typeof request.apiKey === "string" && request.apiKey.trim()) || getApiKey();
   if (!apiKey) {
     return { ok: false, ...makeError(503, ERROR_CODES.GATEWAY_NOT_CONFIGURED, "TTS provider is not configured.", requestId) };
   }
@@ -540,6 +619,7 @@ module.exports = {
   getVoiceLibrary,
   addSharedVoice,
   probeSharedVoices,
+  verifyApiKey,
   _clearCache,
 };
 

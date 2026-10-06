@@ -6,7 +6,7 @@
 
 "use strict";
 
-const { generate, listVoices, listModels, _clearCache } = require("../netlify/functions/providers/elevenlabs");
+const { generate, listVoices, listModels, verifyApiKey, _clearCache } = require("../netlify/functions/providers/elevenlabs");
 
 const FAKE_KEY = "sk-fake-test-key";
 const REQUEST_ID = "test-req-001";
@@ -63,6 +63,7 @@ describe("ElevenLabs provider — generate()", () => {
     text: "Hola mundo",
     modelId: "eleven_multilingual_v2",
     outputFormat: "mp3_44100_128",
+    apiKey: FAKE_KEY,
   };
 
   test("returns audio buffer on 200", async () => {
@@ -75,7 +76,7 @@ describe("ElevenLabs provider — generate()", () => {
     expect(result.contentType).toBe("audio/mpeg");
   });
 
-  test("fetch is called with xi-api-key header", async () => {
+  test("fetch is called with xi-api-key header from request.apiKey", async () => {
     const fakeAudio = Buffer.from([0x49, 0x44, 0x33]);
     mockFetch(200, fakeAudio, true);
 
@@ -163,12 +164,43 @@ describe("ElevenLabs provider — generate()", () => {
     expect(result.error.code).toBe("ELEVENLABS_NETWORK_ERROR");
   });
 
-  test("returns GATEWAY_NOT_CONFIGURED when API key is absent", async () => {
-    delete process.env.ELEVENLABS_API_KEY;
-    const result = await generate(BASE_REQ);
+  test("returns ELEVENLABS_NOT_CONNECTED when request.apiKey is absent (zero env fallback)", async () => {
+    process.env.ELEVENLABS_API_KEY = "sk-global-gateway-key-must-not-be-used";
+    const reqWithoutKey = { ...BASE_REQ };
+    delete reqWithoutKey.apiKey;
+    const result = await generate(reqWithoutKey);
     expect(result.ok).toBe(false);
-    expect(result.error.code).toBe("GATEWAY_NOT_CONFIGURED");
-    expect(result.statusCode).toBe(503);
+    expect(result.error.code).toBe("ELEVENLABS_NOT_CONNECTED");
+    expect(result.statusCode).toBe(428);
+  });
+});
+
+// ─── verifyApiKey() ──────────────────────────────────────────────────────────
+
+describe("ElevenLabs provider — verifyApiKey()", () => {
+  test("returns ok: true with tier and status on 200", async () => {
+    mockFetch(200, { tier: "creator", status: "active" });
+    const result = await verifyApiKey("sk_valid_key_12345", REQUEST_ID);
+    expect(result.ok).toBe(true);
+    expect(result.tier).toBe("creator");
+    expect(result.status).toBe("active");
+
+    const [url, opts] = global.fetch.mock.calls[0];
+    expect(url).toContain("/v1/user/subscription");
+    expect(opts.headers["xi-api-key"]).toBe("sk_valid_key_12345");
+  });
+
+  test("returns ELEVENLABS_INVALID_API_KEY on 401", async () => {
+    mockFetch(401, { detail: "invalid api key" });
+    const result = await verifyApiKey("sk_invalid_key_12345", REQUEST_ID);
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe("ELEVENLABS_INVALID_API_KEY");
+  });
+
+  test("rejects empty or missing key without calling network", async () => {
+    const result = await verifyApiKey("", REQUEST_ID);
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe("ELEVENLABS_INVALID_API_KEY");
   });
 });
 

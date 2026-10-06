@@ -59,6 +59,25 @@
   status = 200
   force = true
 
+# ─── BYOK Provider endpoints ────────────────────────────────────────────────
+[[redirects]]
+  from = "/api/tts/provider/elevenlabs/connect"
+  to = "/.netlify/functions/tts-provider-elevenlabs-connect"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/tts/provider/elevenlabs/status"
+  to = "/.netlify/functions/tts-provider-elevenlabs-status"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/tts/provider/elevenlabs/disconnect"
+  to = "/.netlify/functions/tts-provider-elevenlabs-disconnect"
+  status = 200
+  force = true
+
 
 # ─── Legacy stub (kept for backwards-compat, now a GET info endpoint) ───────
 [[redirects]]

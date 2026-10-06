@@ -26,6 +26,10 @@ function resolveOrigin(requestOrigin) {
 /**
  * Builds the base CORS + GhostAI-Gateway headers.
  *
+ * Credentialed requests (BYOK session cookie) are only enabled when the
+ * request origin is an EXACT match of the strict allowlist. The wildcard `*`
+ * is NEVER combined with `Access-Control-Allow-Credentials`.
+ *
  * @param {string|undefined} requestOrigin
  * @returns {Record<string, string>}
  */
@@ -43,7 +47,26 @@ function corsHeaders(requestOrigin) {
     headers["Access-Control-Allow-Origin"] = resolved;
   }
 
+  if (resolved !== null && resolved !== "*") {
+    headers["Access-Control-Allow-Credentials"] = "true";
+    headers["Vary"] = "Origin";
+  }
+
   return headers;
+}
+
+/**
+ * Strict origin check for credential endpoints.
+ * - When an allowlist is configured, a present Origin header must match exactly.
+ * - Requests without an Origin header (non-browser) are not origin-blocked;
+ *   they still require operator Bearer auth.
+ *
+ * @param {string|undefined} requestOrigin
+ * @returns {boolean}
+ */
+function isOriginAllowed(requestOrigin) {
+  if (!requestOrigin) return true;
+  return resolveOrigin(requestOrigin) !== null;
 }
 
 /**
@@ -60,4 +83,4 @@ function preflightResponse(requestOrigin) {
   };
 }
 
-module.exports = { corsHeaders, preflightResponse, resolveOrigin };
+module.exports = { corsHeaders, preflightResponse, resolveOrigin, isOriginAllowed };

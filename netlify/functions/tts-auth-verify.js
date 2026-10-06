@@ -44,7 +44,7 @@ exports.handler = async (event) => {
   }
 
   const requestId = crypto.randomUUID();
-  const authResult = requireOperatorAuth(event, requestId);
+  const authResult = await requireOperatorAuth(event, requestId);
 
   if (!authResult.ok) {
     return {
@@ -62,6 +62,19 @@ exports.handler = async (event) => {
     };
   }
 
+  const responsePayload = {
+    ok: true,
+    authenticated: true,
+  };
+
+  if (authResult.authMode === "client_token") {
+    responsePayload.authMode = "client_token";
+    responsePayload.client = {
+      id: authResult.clientId,
+      name: authResult.clientName,
+    };
+  }
+
   return {
     statusCode: 200,
     headers: {
@@ -70,9 +83,7 @@ exports.handler = async (event) => {
       "Cache-Control": "no-store",
       "X-TTS-Request-ID": requestId,
     },
-    body: JSON.stringify({
-      ok: true,
-      authenticated: true,
-    }),
+    body: JSON.stringify(responsePayload),
   };
 };
+

@@ -22,6 +22,7 @@ const REDACTED_FIELD_RE = /key|cookie|authorization|secret|token|cipher|password
 const SECRET_VALUE_RES = [
   /sk_[A-Za-z0-9]{8,}/g,
   /v1\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{8,}/g,
+  /gai_live_[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,
   /Bearer\s+[^\s"']+/gi,
 ];
 

@@ -2,13 +2,20 @@
  * @file byok.js
  * Bring-Your-Own-Key (BYOK) session helpers for the ElevenLabs provider.
  *
- * The user's ElevenLabs API key is NEVER stored by the Gateway and NEVER
- * returned to the browser. After validation it is encrypted with AES-256-GCM
- * (see credentialCrypto.js) and handed back ONLY as the value of an
- * HttpOnly / Secure / SameSite=Strict session cookie with the `__Host-` prefix.
- *
- * Only the Gateway can decrypt it. There is NO fallback to any GhostAI-owned
- * credential (ELEVENLABS_API_KEY is never read in this module).
+ * Security & Identity Binding:
+ *  - The user's ElevenLabs API key is NEVER stored by the Gateway and NEVER
+ *    returned to the browser.
+ *  - In v2, the encrypted cookie payload binds the API key to the GhostAI identity
+ *    (principalId):
+ *    {
+ *      "v": 2,
+ *      "provider": "elevenlabs",
+ *      "principalId": "...",
+ *      "apiKey": "..."
+ *    }
+ *  - Only the Gateway can decrypt it using AES-256-GCM.
+ *  - Cross-client cookie reuse is strictly blocked (fail-closed, mismatch check).
+ *  - Legacy v1 cookies without principalId fail closed (user must reconnect).
  */
 
 "use strict";
@@ -83,16 +90,17 @@ function readByokCookie(event) {
 }
 
 /**
- * Resolves the user's ElevenLabs API key from the BYOK session cookie.
- * Never falls back to process.env.ELEVENLABS_API_KEY or any GhostAI credential.
+ * Resolves the user's ElevenLabs API key from the BYOK session cookie,
+ * ensuring the session cookie belongs to the authenticated principal.
  *
  * @param {object} event
+ * @param {string | null} [expectedPrincipalId=null] - The authenticated principalId
  * @returns {
- *   | { ok: true; apiKey: string }
- *   | { ok: false; reason: "not_configured" | "missing" | "invalid" }
+ *   | { ok: true; apiKey: string; principalId: string }
+ *   | { ok: false; reason: "not_configured" | "missing" | "invalid"; mismatch?: boolean }
  * }
  */
-function resolveByokApiKey(event) {
+function resolveByokApiKey(event, expectedPrincipalId = null) {
   if (!isEncryptionConfigured()) {
     return { ok: false, reason: "not_configured" };
   }
@@ -100,11 +108,40 @@ function resolveByokApiKey(event) {
   if (!token) {
     return { ok: false, reason: "missing" };
   }
-  const apiKey = decryptCredential(token);
-  if (!apiKey || !isPlausibleApiKey(apiKey)) {
+  const decrypted = decryptCredential(token);
+  if (!decrypted) {
     return { ok: false, reason: "invalid" };
   }
-  return { ok: true, apiKey };
+
+  // Parse JSON payload (v2 format with principalId binding)
+  let parsed;
+  try {
+    parsed = JSON.parse(decrypted);
+  } catch (_) {
+    // Legacy v1 format (raw string without principalId) -> fail closed
+    return { ok: false, reason: "invalid" };
+  }
+
+  if (
+    !parsed ||
+    parsed.v !== 2 ||
+    parsed.provider !== "elevenlabs" ||
+    !parsed.principalId ||
+    !parsed.apiKey
+  ) {
+    return { ok: false, reason: "invalid" };
+  }
+
+  // Verify principal binding if expectedPrincipalId is specified
+  if (expectedPrincipalId && parsed.principalId !== expectedPrincipalId) {
+    return { ok: false, reason: "invalid", mismatch: true };
+  }
+
+  if (!isPlausibleApiKey(parsed.apiKey)) {
+    return { ok: false, reason: "invalid" };
+  }
+
+  return { ok: true, apiKey: parsed.apiKey, principalId: parsed.principalId };
 }
 
 /**
@@ -124,12 +161,19 @@ function isPlausibleApiKey(value) {
 }
 
 /**
- * Encrypts a validated API key and returns the Set-Cookie header value.
+ * Encrypts a validated API key bound to principalId and returns the Set-Cookie header value.
  * @param {string} apiKey
+ * @param {string} [principalId="legacy_operator"]
  * @returns {string}
  */
-function issueByokCookie(apiKey) {
-  return buildSetCookie(encryptCredential(apiKey));
+function issueByokCookie(apiKey, principalId = "legacy_operator") {
+  const payload = JSON.stringify({
+    v: 2,
+    provider: "elevenlabs",
+    principalId: String(principalId || "legacy_operator"),
+    apiKey,
+  });
+  return buildSetCookie(encryptCredential(payload));
 }
 
 /**

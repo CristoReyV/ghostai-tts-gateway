@@ -65,7 +65,7 @@ exports.handler = async (event) => {
   const requestId = crypto.randomUUID();
 
   // ── Operator Auth guard ─────────────────────────────────────────────────────
-  const authResult = requireOperatorAuth(event, requestId);
+  const authResult = await requireOperatorAuth(event, requestId);
   if (!authResult.ok) {
     return jsonErrorResponse(authResult, origin);
   }
@@ -88,7 +88,7 @@ exports.handler = async (event) => {
   // ── BYOK Credential Resolution ──────────────────────────────────────────────
   // Resolves user's ElevenLabs key exclusively from HttpOnly session cookie.
   // CRITICAL: ZERO fallback to process.env.ELEVENLABS_API_KEY or GhostAI key.
-  const byok = resolveByokApiKey(event);
+  const byok = resolveByokApiKey(event, authResult.principalId);
   if (!byok.ok) {
     const errPayload = byokFailureError(byok, requestId);
     const clearCookie = errPayload.clearCookie ? buildClearCookie() : undefined;
@@ -108,6 +108,7 @@ exports.handler = async (event) => {
   } = body;
 
   logRequestStart(requestId, {
+    clientId: authResult.clientId || undefined,
     provider: providerName,
     voiceId,
     modelId: modelId || "(default)",

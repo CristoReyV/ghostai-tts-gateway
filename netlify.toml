@@ -59,6 +59,25 @@
   status = 200
   force = true
 
+# ─── Admin endpoints ────────────────────────────────────────────────────────
+[[redirects]]
+  from = "/api/admin/clients"
+  to = "/.netlify/functions/admin-clients"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/admin/access-tokens"
+  to = "/.netlify/functions/admin-access-tokens"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/admin/access-tokens/revoke"
+  to = "/.netlify/functions/admin-access-tokens-revoke"
+  status = 200
+  force = true
+
 # ─── BYOK Provider endpoints ────────────────────────────────────────────────
 [[redirects]]
   from = "/api/tts/provider/elevenlabs/connect"

@@ -57,13 +57,13 @@ exports.handler = async (event) => {
   const requestId = crypto.randomUUID();
 
   // ── Operator Auth guard ─────────────────────────────────────────────────────
-  const authResult = requireOperatorAuth(event, requestId);
+  const authResult = await requireOperatorAuth(event, requestId);
   if (!authResult.ok) {
     return jsonResponse(authResult.statusCode, { error: authResult.error, requestId }, origin);
   }
 
   // ── Inspect and decrypt session cookie (NO ElevenLabs call) ─────────────────
-  const byok = resolveByokApiKey(event);
+  const byok = resolveByokApiKey(event, authResult.principalId);
 
   if (byok.ok) {
     logByokEvent(requestId, { action: "status", outcome: "connected" });

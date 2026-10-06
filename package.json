@@ -10,7 +10,14 @@
     "test:coverage": "jest --runInBand --coverage",
     "lint": "echo 'No linter configured yet. Add eslint if needed.'"
   },
-  "keywords": ["ghostai", "tts", "gateway", "netlify", "elevenlabs", "serverless"],
+  "keywords": [
+    "ghostai",
+    "tts",
+    "gateway",
+    "netlify",
+    "elevenlabs",
+    "serverless"
+  ],
   "author": "CristoReyV",
   "license": "MIT",
   "engines": {
@@ -18,11 +25,16 @@
   },
   "jest": {
     "testEnvironment": "node",
-    "testMatch": ["**/tests/**/*.test.js"],
+    "testMatch": [
+      "**/tests/**/*.test.js"
+    ],
     "clearMocks": true
   },
   "devDependencies": {
     "@jest/globals": "^30.0.0",
     "jest": "^30.0.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.117.2"
   }
 }

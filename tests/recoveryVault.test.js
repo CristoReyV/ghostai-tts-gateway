@@ -318,4 +318,86 @@ describe("Temporary Recovery Vault & Pipeline", () => {
     const checkActive = await db.getGenerationSession(activeSession.id);
     expect(checkActive.status).toBe("generating");
   });
+
+  test("Canonical DTO: GET /api/tts/generations returns explicit camelCase RecoverySessionSummary without leaking DB fields", async () => {
+    const testSession = await db.createGenerationSession({
+      clientId: clientA.id,
+      projectId: "Lia y el Faro Encantado",
+      projectTitle: "Lia y el Faro Encantado",
+      sourceManifest: { internal: "secret-manifest-data" },
+      retentionHours: 24,
+    });
+
+    await db.updateGenerationSession(testSession.id, {
+      item_count: 1,
+      ready_count: 1,
+      error_count: 0,
+      status: "ready",
+      zip_status: "not_prepared",
+    });
+
+    const res = await ttsGenerations.handler({
+      httpMethod: "GET",
+      headers: authHeadersA,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.ok).toBe(true);
+    expect(Array.isArray(body.sessions)).toBe(true);
+
+    const dto = body.sessions.find((s) => s.id === testSession.id);
+    expect(dto).toBeDefined();
+
+    // Required camelCase fields
+    expect(dto.id).toBe(testSession.id);
+    expect(dto.projectId).toBe("Lia y el Faro Encantado");
+    expect(dto.projectTitle).toBe("Lia y el Faro Encantado");
+    expect(dto.status).toBe("ready");
+    expect(dto.itemCount).toBe(1);
+    expect(dto.readyCount).toBe(1);
+    expect(dto.errorCount).toBe(0);
+    expect(dto.zipStatus).toBe("not_prepared");
+    expect(typeof dto.createdAt).toBe("string");
+    expect(new Date(dto.createdAt).toString()).not.toBe("Invalid Date");
+    expect(typeof dto.expiresAt).toBe("string");
+    expect(new Date(dto.expiresAt).toString()).not.toBe("Invalid Date");
+    expect(dto.zipVerifiedAt).toBeNull();
+
+    // Strictly verify raw DB snake_case and internal fields are NOT leaked
+    expect(dto.project_id).toBeUndefined();
+    expect(dto.project_title).toBeUndefined();
+    expect(dto.item_count).toBeUndefined();
+    expect(dto.ready_count).toBeUndefined();
+    expect(dto.error_count).toBeUndefined();
+    expect(dto.zip_status).toBeUndefined();
+    expect(dto.created_at).toBeUndefined();
+    expect(dto.expires_at).toBeUndefined();
+    expect(dto.zip_verified_at).toBeUndefined();
+    expect(dto.client_id).toBeUndefined();
+    expect(dto.source_manifest).toBeUndefined();
+  });
+
+  test("Canonical DTO: GET /api/tts/generations?sessionId= returns camelCase session DTO", async () => {
+    const testSession = await db.createGenerationSession({
+      clientId: clientA.id,
+      projectTitle: "Single Session DTO Test",
+      retentionHours: 24,
+    });
+
+    const res = await ttsGenerations.handler({
+      httpMethod: "GET",
+      headers: authHeadersA,
+      queryStringParameters: { sessionId: testSession.id },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.ok).toBe(true);
+    expect(body.session).toBeDefined();
+    expect(body.session.projectTitle).toBe("Single Session DTO Test");
+    expect(body.session.project_title).toBeUndefined();
+    expect(body.session.client_id).toBeUndefined();
+  });
 });
+

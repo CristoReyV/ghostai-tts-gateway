@@ -29,6 +29,45 @@ function jsonResponse(statusCode, body, origin) {
   };
 }
 
+/**
+ * Safe ISO formatter for dates.
+ * @param {string|Date|null|undefined} val
+ * @returns {string|null}
+ */
+function toIsoDate(val) {
+  if (!val) return null;
+  try {
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? null : d.toISOString();
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Maps a raw database session row to the canonical RecoverySessionSummary public DTO.
+ * Explicit whitelist — never spreads raw row.
+ *
+ * @param {object} row - Raw DB session record
+ * @returns {object|null}
+ */
+function toSessionDto(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    projectId: row.project_id || null,
+    projectTitle: row.project_title || null,
+    status: row.status,
+    itemCount: typeof row.item_count === "number" ? row.item_count : (parseInt(row.item_count, 10) || 0),
+    readyCount: typeof row.ready_count === "number" ? row.ready_count : (parseInt(row.ready_count, 10) || 0),
+    errorCount: typeof row.error_count === "number" ? row.error_count : (parseInt(row.error_count, 10) || 0),
+    zipStatus: row.zip_status || "not_prepared",
+    createdAt: toIsoDate(row.created_at),
+    expiresAt: toIsoDate(row.expires_at),
+    zipVerifiedAt: toIsoDate(row.zip_verified_at),
+  };
+}
+
 exports.handler = async (event) => {
   const origin = event.headers?.origin || event.headers?.Origin;
 
@@ -71,11 +110,12 @@ exports.handler = async (event) => {
         }
 
         const items = await db.listGenerationItems(sessionId);
-        return jsonResponse(200, { ok: true, session, items }, origin);
+        return jsonResponse(200, { ok: true, session: toSessionDto(session), items }, origin);
       }
 
-      // List all sessions for this client
-      const sessions = await db.listGenerationSessions(clientId);
+      // List all sessions for this client (normalized to canonical camelCase DTO)
+      const rawSessions = await db.listGenerationSessions(clientId);
+      const sessions = (rawSessions || []).map(toSessionDto).filter(Boolean);
       return jsonResponse(200, { ok: true, sessions }, origin);
     } catch (err) {
       const errorPayload = makeError(500, ERROR_CODES.INTERNAL_ERROR, "Error consultando sesiones de recuperación.", requestId);

@@ -150,7 +150,7 @@ exports.handler = async (event) => {
   // ── Key is valid: encrypt server-side and issue session cookie ──────────────
   let cookieHeader;
   try {
-    cookieHeader = issueByokCookie(candidateKey, authResult.principalId);
+    cookieHeader = issueByokCookie(candidateKey, authResult.principalId, verifyResult.tier);
   } catch (err) {
     logByokEvent(requestId, { action: "connect", outcome: "encryption_failed" });
     const errPayload = makeError(500, ERROR_CODES.INTERNAL_ERROR, "Error al cifrar credencial de sesión.", requestId);

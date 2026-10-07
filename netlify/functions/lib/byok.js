@@ -141,7 +141,7 @@ function resolveByokApiKey(event, expectedPrincipalId = null) {
     return { ok: false, reason: "invalid" };
   }
 
-  return { ok: true, apiKey: parsed.apiKey, principalId: parsed.principalId };
+  return { ok: true, apiKey: parsed.apiKey, principalId: parsed.principalId, tier: parsed.tier || "user" };
 }
 
 /**
@@ -164,14 +164,16 @@ function isPlausibleApiKey(value) {
  * Encrypts a validated API key bound to principalId and returns the Set-Cookie header value.
  * @param {string} apiKey
  * @param {string} [principalId="legacy_operator"]
+ * @param {string} [tier="user"]
  * @returns {string}
  */
-function issueByokCookie(apiKey, principalId = "legacy_operator") {
+function issueByokCookie(apiKey, principalId = "legacy_operator", tier = "user") {
   const payload = JSON.stringify({
     v: 2,
     provider: "elevenlabs",
     principalId: String(principalId || "legacy_operator"),
     apiKey,
+    tier: String(tier || "user"),
   });
   return buildSetCookie(encryptCredential(payload));
 }

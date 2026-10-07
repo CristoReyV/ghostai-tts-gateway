@@ -73,6 +73,7 @@ exports.handler = async (event) => {
         ok: true,
         connected: true,
         provider: "elevenlabs",
+        tier: byok.tier || "user",
       },
       origin
     );

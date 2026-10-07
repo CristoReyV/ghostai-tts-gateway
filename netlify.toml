@@ -2,6 +2,10 @@
   publish = "public"
   functions = "netlify/functions"
 
+# ─── Scheduled Functions ──────────────────────────────────────────────────────
+[functions."cleanup-tts-generations"]
+  schedule = "@hourly"
+
 # ─── Health endpoints ───────────────────────────────────────────────────────
 [[redirects]]
   from = "/health"
@@ -61,6 +65,24 @@
 
 # ─── Admin endpoints ────────────────────────────────────────────────────────
 [[redirects]]
+  from = "/api/admin/auth/login"
+  to = "/.netlify/functions/admin-auth-login"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/admin/auth/logout"
+  to = "/.netlify/functions/admin-auth-logout"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/admin/auth/status"
+  to = "/.netlify/functions/admin-auth-status"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/admin/clients"
   to = "/.netlify/functions/admin-clients"
   status = 200
@@ -75,6 +97,37 @@
 [[redirects]]
   from = "/api/admin/access-tokens/revoke"
   to = "/.netlify/functions/admin-access-tokens-revoke"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/admin/tts/operations"
+  to = "/.netlify/functions/admin-tts-operations"
+  status = 200
+  force = true
+
+# ─── TTS Recovery Vault endpoints ───────────────────────────────────────────
+[[redirects]]
+  from = "/api/tts/generations/recover"
+  to = "/.netlify/functions/tts-generations-recover"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/tts/generations/audio"
+  to = "/.netlify/functions/tts-generations-audio"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/tts/generations/verify"
+  to = "/.netlify/functions/tts-generations-verify"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/tts/generations"
+  to = "/.netlify/functions/tts-generations"
   status = 200
   force = true
 

@@ -36,10 +36,10 @@ function resolveOrigin(requestOrigin) {
 function corsHeaders(requestOrigin) {
   const resolved = resolveOrigin(requestOrigin);
   const headers = {
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Expose-Headers":
-      "X-TTS-Provider, X-TTS-Request-ID, X-TTS-Output-Format, X-GhostAI-Gateway",
+      "X-TTS-Provider, X-TTS-Request-ID, X-TTS-Output-Format, X-GhostAI-Gateway, X-TTS-Session-ID, X-TTS-Audio-SHA256, X-TTS-Recovery-Warning",
     "X-GhostAI-Gateway": "true",
   };
 

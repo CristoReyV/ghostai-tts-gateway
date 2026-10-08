@@ -297,13 +297,35 @@ async function listVoices(requestId) {
 
     const raw = await res.json();
 
-    const voices = (raw.voices || []).map((v) => ({
-      voiceId: v.voice_id,
-      name: v.name,
-      category: v.category || null,
-      labels: v.labels || {},
-      previewUrl: v.preview_url || null,
-    }));
+    const voices = (raw.voices || []).map((v) => {
+      let voiceOrigin = "unknown";
+      if (v.category === "premade") {
+        voiceOrigin = "premade";
+      } else if (
+        v.category === "professional" ||
+        v.category === "shared" ||
+        v.category === "high_quality" ||
+        v.sharing?.public_owner_id ||
+        v.sharing?.original_voice_id
+      ) {
+        voiceOrigin = "library_copy";
+      } else if (v.is_owner === true || v.category === "cloned" || v.category === "generated") {
+        voiceOrigin = "owned";
+      }
+
+      return {
+        voiceId: v.voice_id,
+        name: v.name,
+        category: v.category || null,
+        labels: v.labels || {},
+        previewUrl: v.preview_url || null,
+        availableForTiers: Array.isArray(v.available_for_tiers) ? v.available_for_tiers : null,
+        isOwner: typeof v.is_owner === "boolean" ? v.is_owner : null,
+        voiceOrigin,
+        libraryAllowsFreeUsers: v.sharing?.free_users_allowed ?? null,
+        publicOwnerId: v.sharing?.public_owner_id ?? null,
+      };
+    });
 
     const result = {
       voices,
@@ -492,7 +514,15 @@ async function getVoiceLibrary(params = {}, requestId) {
       clonedByCount: typeof v.cloned_by_count === "number" ? v.cloned_by_count : 0,
       usageCharacterCount1y: typeof v.usage_character_count_1y === "number" ? v.usage_character_count_1y : 0,
       featured: !!v.featured,
+      // ElevenLabs Rule: Voice Library voices are NOT available via API to Free-tier users.
+      // Provenance: this voice is from the Voice Library (/v1/shared-voices)
+      voiceOrigin: "shared_library",
+      // Semantic correction: libraryAllowsFreeUsers indicates library permission to add/view in ElevenLabs UI, NOT API capability
+      libraryAllowsFreeUsers: v.free_users_allowed !== false,
       freeUsersAllowed: v.free_users_allowed !== false,
+      isBookmarked: !!v.is_bookmarked,
+      isAddedByUser: !!v.is_added_by_user,
+      availableForTiers: Array.isArray(v.available_for_tiers) ? v.available_for_tiers : null,
       liveModerationEnabled: !!v.live_moderation_enabled,
       noticePeriod: typeof v.notice_period === "number" ? v.notice_period : null,
       rate: typeof v.rate === "number" ? v.rate : null,

@@ -261,23 +261,33 @@ async function generate(request) {
 }
 
 /**
- * Lists available voices from ElevenLabs (/v2/voices) with a short in-memory cache.
+ * Lists available voices from ElevenLabs (/v2/voices) with explicit voice_type buckets.
+ * Supports explicit bucket querying (voiceType: "default" | "community" | "personal" | "workspace")
+ * or full account voices catalog with authoritative provenance mapping.
  *
  * @param {string} requestId
+ * @param {{ voiceType?: string | null }} [options={}]
  * @returns {Promise<
  *   | { ok: true; voices: unknown[]; hasMore: boolean; nextPageToken: string | null }
  *   | { ok: false; statusCode: number; error: { code: string; message: string }; requestId: string }
  * >}
  */
-async function listVoices(requestId) {
+async function listVoices(requestId, options = {}) {
   const apiKey = getApiKey();
   if (!apiKey) {
     return { ok: false, ...makeError(503, ERROR_CODES.GATEWAY_NOT_CONFIGURED, "TTS provider is not configured.", requestId) };
   }
 
+  const voiceType = options?.voiceType || null;
+  const cacheKey = voiceType || "all";
   const now = Date.now();
-  if (voicesCache && voicesCache.expiresAt > now) {
-    return { ok: true, ...voicesCache.data };
+  if (voicesCache) {
+    if (voicesCache[cacheKey] && voicesCache[cacheKey].expiresAt > now) {
+      return { ok: true, ...voicesCache[cacheKey].data };
+    }
+    if (!voiceType && voicesCache.data && voicesCache.expiresAt > now) {
+      return { ok: true, ...voicesCache.data };
+    }
   }
 
   const controller = new AbortController();
@@ -285,7 +295,11 @@ async function listVoices(requestId) {
   const startMs = Date.now();
 
   try {
-    const res = await fetch(`${ELEVENLABS_BASE_URL}/v2/voices?page_size=100`, {
+    const url = voiceType
+      ? `${ELEVENLABS_BASE_URL}/v2/voices?voice_type=${encodeURIComponent(voiceType)}&page_size=100`
+      : `${ELEVENLABS_BASE_URL}/v2/voices?page_size=100`;
+
+    const res = await fetch(url, {
       headers: { "xi-api-key": apiKey },
       signal: controller.signal,
     });
@@ -299,18 +313,36 @@ async function listVoices(requestId) {
 
     const voices = (raw.voices || []).map((v) => {
       let voiceOrigin = "unknown";
-      if (v.category === "premade") {
-        voiceOrigin = "premade";
-      } else if (
-        v.category === "professional" ||
-        v.category === "shared" ||
-        v.category === "high_quality" ||
-        v.sharing?.public_owner_id ||
-        v.sharing?.original_voice_id
-      ) {
+      let sharedLibraryOrigin = false;
+
+      if (voiceType === "default") {
+        voiceOrigin = "default";
+      } else if (voiceType === "community") {
         voiceOrigin = "library_copy";
-      } else if (v.is_owner === true || v.category === "cloned" || v.category === "generated") {
-        voiceOrigin = "owned";
+        sharedLibraryOrigin = true;
+      } else if (voiceType === "personal") {
+        voiceOrigin = "personal";
+      } else if (voiceType === "workspace") {
+        voiceOrigin = "workspace";
+      } else {
+        // Authoritative mapping from /v2/voices payload
+        if (v.category === "premade" || v.category === "default") {
+          voiceOrigin = "default";
+        } else if (
+          v.category === "community" ||
+          v.category === "professional" ||
+          v.category === "shared" ||
+          v.category === "high_quality" ||
+          v.sharing?.public_owner_id ||
+          v.sharing?.original_voice_id
+        ) {
+          voiceOrigin = "library_copy";
+          sharedLibraryOrigin = true;
+        } else if (v.category === "workspace") {
+          voiceOrigin = "workspace";
+        } else if (v.is_owner === true || v.category === "cloned" || v.category === "generated" || v.category === "personal") {
+          voiceOrigin = "personal";
+        }
       }
 
       return {
@@ -322,6 +354,7 @@ async function listVoices(requestId) {
         availableForTiers: Array.isArray(v.available_for_tiers) ? v.available_for_tiers : null,
         isOwner: typeof v.is_owner === "boolean" ? v.is_owner : null,
         voiceOrigin,
+        sharedLibraryOrigin,
         libraryAllowsFreeUsers: v.sharing?.free_users_allowed ?? null,
         publicOwnerId: v.sharing?.public_owner_id ?? null,
       };
@@ -333,7 +366,11 @@ async function listVoices(requestId) {
       nextPageToken: raw.last_voice_id || null,
     };
 
-    voicesCache = { data: result, expiresAt: now + CACHE_TTL_MS };
+    if (!voicesCache || typeof voicesCache !== "object") voicesCache = {};
+    const entry = { data: result, expiresAt: now + CACHE_TTL_MS };
+    voicesCache.data = result;
+    voicesCache.expiresAt = now + CACHE_TTL_MS;
+    voicesCache[cacheKey] = entry;
 
     return { ok: true, ...result };
   } catch (err) {
@@ -517,6 +554,7 @@ async function getVoiceLibrary(params = {}, requestId) {
       // ElevenLabs Rule: Voice Library voices are NOT available via API to Free-tier users.
       // Provenance: this voice is from the Voice Library (/v1/shared-voices)
       voiceOrigin: "shared_library",
+      sharedLibraryOrigin: true,
       // Semantic correction: libraryAllowsFreeUsers indicates library permission to add/view in ElevenLabs UI, NOT API capability
       libraryAllowsFreeUsers: v.free_users_allowed !== false,
       freeUsersAllowed: v.free_users_allowed !== false,

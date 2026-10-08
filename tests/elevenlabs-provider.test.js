@@ -244,6 +244,38 @@ describe("ElevenLabs provider — listVoices()", () => {
     expect(result.ok).toBe(false);
     expect(result.error.code).toBe("ELEVENLABS_UNAUTHORIZED");
   });
+
+  test("queries explicit bucket voice_type=community and tags library_copy and sharedLibraryOrigin", async () => {
+    mockFetch(200, {
+      voices: [
+        { voice_id: "c1", name: "Community Voice", category: "professional", labels: {}, preview_url: null, sharing: { free_users_allowed: true } },
+      ],
+      has_more: false,
+      last_voice_id: null,
+    });
+    const result = await listVoices(REQUEST_ID, { voiceType: "community" });
+    expect(result.ok).toBe(true);
+    expect(result.voices[0].voiceOrigin).toBe("library_copy");
+    expect(result.voices[0].sharedLibraryOrigin).toBe(true);
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("voice_type=community"),
+      expect.anything()
+    );
+  });
+
+  test("queries explicit bucket voice_type=default and tags default origin", async () => {
+    mockFetch(200, {
+      voices: [
+        { voice_id: "d1", name: "Default Voice", category: "premade", labels: {}, preview_url: null },
+      ],
+      has_more: false,
+      last_voice_id: null,
+    });
+    const result = await listVoices(REQUEST_ID, { voiceType: "default" });
+    expect(result.ok).toBe(true);
+    expect(result.voices[0].voiceOrigin).toBe("default");
+    expect(result.voices[0].sharedLibraryOrigin).toBe(false);
+  });
 });
 
 // ─── listModels() ────────────────────────────────────────────────────────────

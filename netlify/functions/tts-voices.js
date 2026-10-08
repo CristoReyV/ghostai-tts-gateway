@@ -48,7 +48,8 @@ exports.handler = async (event) => {
     return jsonResponse(err.statusCode, err, { "X-TTS-Request-ID": requestId }, origin);
   }
 
-  const result = await provider.listVoices(requestId);
+  const voiceType = event.queryStringParameters?.voice_type || null;
+  const result = await provider.listVoices(requestId, { voiceType });
 
   if (!result.ok) {
     return jsonResponse(result.statusCode, { error: result.error, requestId }, { "X-TTS-Request-ID": requestId }, origin);

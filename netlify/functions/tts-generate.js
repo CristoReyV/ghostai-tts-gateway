@@ -114,6 +114,7 @@ exports.handler = async (event) => {
     narrationId: reqNarrationId,
     sceneId,
     sceneIndex,
+    withTimestamps = false,
   } = body;
 
   logRequestStart(requestId, {
@@ -143,6 +144,7 @@ exports.handler = async (event) => {
       voiceSettings,
       outputFormat,
       languageCode,
+      withTimestamps: Boolean(withTimestamps),
       apiKey: userApiKey,
     });
   } finally {
@@ -240,6 +242,7 @@ exports.handler = async (event) => {
           text: text || null,
           errorCode: TtsErrorCode.RECOVERY_STORAGE_FAILED,
           errorStage: TtsOperationStage.STORAGE,
+          alignment: result.alignment || null,
           expiresAt: session.expires_at,
         });
       } else {
@@ -260,6 +263,7 @@ exports.handler = async (event) => {
           modelId: modelId || "eleven_multilingual_v2",
           outputFormat: outputFormat || "mp3_44100_128",
           text: text || null,
+          alignment: result.alignment || null,
           expiresAt: session.expires_at,
         });
       }
@@ -280,11 +284,9 @@ exports.handler = async (event) => {
     }
   }
 
-  // ── Return binary audio ─────────────────────────────────────────────────────
+  // ── Return response (JSON if withTimestamps: true, binary audio otherwise) ──
   const responseHeaders = {
     ...corsHeaders(origin),
-    "Content-Type": result.contentType || "audio/mpeg",
-    "Content-Length": String(result.audioBuffer.byteLength),
     "X-TTS-Provider": providerName,
     "X-TTS-Request-ID": requestId,
     "X-TTS-Output-Format": body.outputFormat || process.env.ELEVENLABS_DEFAULT_OUTPUT_FORMAT || "mp3_44100_128",
@@ -298,6 +300,27 @@ exports.handler = async (event) => {
   if (recoveryWarning) {
     responseHeaders["X-TTS-Recovery-Warning"] = recoveryWarning;
   }
+
+  if (withTimestamps) {
+    responseHeaders["Content-Type"] = "application/json";
+    return {
+      statusCode: 200,
+      headers: responseHeaders,
+      body: JSON.stringify({
+        ok: true,
+        audioBase64: result.audioBase64 || result.audioBuffer.toString("base64"),
+        outputFormat: body.outputFormat || process.env.ELEVENLABS_DEFAULT_OUTPUT_FORMAT || "mp3_44100_128",
+        alignment: result.alignment || null,
+        requestId,
+        sessionId: activeSessionId || null,
+        sha256,
+      }),
+    };
+  }
+
+  // Legacy binary audio response
+  responseHeaders["Content-Type"] = result.contentType || "audio/mpeg";
+  responseHeaders["Content-Length"] = String(result.audioBuffer.byteLength);
 
   return {
     statusCode: 200,

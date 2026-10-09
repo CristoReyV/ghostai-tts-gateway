@@ -93,6 +93,7 @@ exports.handler = async (event) => {
       outputFormat: i.output_format,
       durationSeconds: i.duration_seconds,
       text: i.text, // Preserved temporarily for 1.0 reconstruction
+      alignment: i.alignment || null,
     }));
 
     return jsonResponse(

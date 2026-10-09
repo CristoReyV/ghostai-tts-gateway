@@ -16,6 +16,7 @@
 
 const { ERROR_CODES, makeError } = require("../../lib/errors");
 const { logProviderRequest, logProviderSuccess, logProviderError } = require("../../lib/logger");
+const { normalizeElevenLabsAlignment } = require("../../lib/alignment");
 
 const ELEVENLABS_BASE_URL = "https://api.elevenlabs.io";
 const DEFAULT_MODEL_ID = process.env.ELEVENLABS_DEFAULT_MODEL_ID || "eleven_multilingual_v2";
@@ -193,6 +194,7 @@ async function generate(request) {
     voiceSettings,
     outputFormat = DEFAULT_OUTPUT_FORMAT,
     languageCode,
+    withTimestamps = false,
   } = request;
 
   logProviderRequest(requestId);
@@ -214,7 +216,10 @@ async function generate(request) {
       : {}),
   };
 
-  const url = `${ELEVENLABS_BASE_URL}/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=${encodeURIComponent(outputFormat)}`;
+  const endpointPath = withTimestamps ? "with-timestamps" : "";
+  const url = endpointPath
+    ? `${ELEVENLABS_BASE_URL}/v1/text-to-speech/${encodeURIComponent(voiceId)}/${endpointPath}?output_format=${encodeURIComponent(outputFormat)}`
+    : `${ELEVENLABS_BASE_URL}/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=${encodeURIComponent(outputFormat)}`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
@@ -226,7 +231,7 @@ async function generate(request) {
       headers: {
         "xi-api-key": apiKey,
         "Content-Type": "application/json",
-        Accept: "audio/*",
+        Accept: withTimestamps ? "application/json" : "audio/*",
       },
       body: JSON.stringify(body),
       signal: controller.signal,
@@ -237,6 +242,47 @@ async function generate(request) {
 
     if (!res.ok) {
       return { ok: false, ...(await handleElevenLabsError(res, requestId, durationMs)) };
+    }
+
+    if (withTimestamps) {
+      let rawData;
+      try {
+        rawData = await res.json();
+      } catch (jsonErr) {
+        return { ok: false, ...makeError(502, ERROR_CODES.ELEVENLABS_SERVER_ERROR, "Invalid JSON from ElevenLabs with-timestamps endpoint.", requestId) };
+      }
+
+      const audioBase64 = rawData?.audio_base64 || "";
+      const audioBuffer = Buffer.from(audioBase64, "base64");
+      const contentType = "audio/mpeg";
+
+      // Normalize alignment provider-agnostically using original alignment
+      let alignment = null;
+      try {
+        alignment = normalizeElevenLabsAlignment({
+          text,
+          rawAlignment: rawData?.alignment,
+        });
+      } catch (_) {
+        alignment = null;
+      }
+
+      logProviderSuccess(requestId, {
+        durationMs,
+        responseBytes: audioBuffer.byteLength,
+        hasAlignment: Boolean(alignment),
+        alignmentWords: alignment?.words?.length || 0,
+      });
+
+      return {
+        ok: true,
+        audioBuffer,
+        audioBase64,
+        alignment,
+        contentType,
+        durationMs,
+        responseBytes: audioBuffer.byteLength,
+      };
     }
 
     const arrayBuffer = await res.arrayBuffer();

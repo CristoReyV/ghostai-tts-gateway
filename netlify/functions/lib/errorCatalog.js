@@ -187,6 +187,7 @@ function sanitizeSourceManifest(manifest) {
       duration: typeof i.duration === "number" ? i.duration : null,
       requestId: i.requestId || null,
       file: i.file || null,
+      alignment: i.alignment && typeof i.alignment === "object" ? i.alignment : undefined,
     }));
   }
 

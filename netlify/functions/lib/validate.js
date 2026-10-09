@@ -105,6 +105,14 @@ function validateGenerateRequest(body, requestId) {
       requestId
     );
   }
+  if (body.withTimestamps !== undefined && typeof body.withTimestamps !== "boolean") {
+    return makeError(
+      400,
+      ERROR_CODES.VALIDATION_INVALID_VALUE,
+      "Field 'withTimestamps' must be a boolean when provided.",
+      requestId
+    );
+  }
   return null;
 }
 

@@ -16,7 +16,7 @@
 
 const { ERROR_CODES, makeError } = require("../../lib/errors");
 const { logProviderRequest, logProviderSuccess, logProviderError } = require("../../lib/logger");
-const { normalizeElevenLabsAlignment } = require("../../lib/alignment");
+const { normalizeElevenLabsAlignment, normalizeElevenLabsForcedAlignment } = require("../../lib/alignment");
 
 const ELEVENLABS_BASE_URL = "https://api.elevenlabs.io";
 const DEFAULT_MODEL_ID = process.env.ELEVENLABS_DEFAULT_MODEL_ID || "eleven_multilingual_v2";
@@ -720,6 +720,157 @@ async function probeSharedVoices(params = {}, requestId) {
   return getVoiceLibrary(params, requestId);
 }
 
+/**
+ * Executes ElevenLabs Forced Alignment for an existing audio buffer and narration text.
+ * Strictly provider-agnostic output: returns canonical NarrationAlignment.
+ * Never synthesizes new audio. Preserves existing audio.
+ *
+ * @param {{
+ *   apiKey: string;
+ *   requestId: string;
+ *   audioBuffer: Buffer;
+ *   text: string;
+ * }} request
+ * @returns {Promise<
+ *   | { ok: true; alignment: { words: Array<{ text: string; start: number; end: number }> }; durationMs: number }
+ *   | { ok: false; statusCode: number; error: { code: string; message: string }; requestId: string }
+ * >}
+ */
+async function alignAudio(request) {
+  const apiKey = request && typeof request.apiKey === "string" ? request.apiKey.trim() : "";
+  const requestId = request?.requestId || "";
+
+  if (!apiKey) {
+    return {
+      ok: false,
+      ...makeError(
+        428,
+        ERROR_CODES.ELEVENLABS_NOT_CONNECTED,
+        "Conecta tu cuenta de ElevenLabs antes de sincronizar subtítulos.",
+        requestId
+      ),
+    };
+  }
+
+  const audioBuffer = request?.audioBuffer;
+  if (!Buffer.isBuffer(audioBuffer) || audioBuffer.byteLength === 0) {
+    return {
+      ok: false,
+      ...makeError(
+        400,
+        ERROR_CODES.VALIDATION_INVALID_VALUE,
+        "El archivo de audio es requerido y no puede estar vacío.",
+        requestId
+      ),
+    };
+  }
+
+  const text = typeof request?.text === "string" ? request.text.trim() : "";
+  if (!text) {
+    return {
+      ok: false,
+      ...makeError(
+        400,
+        ERROR_CODES.VALIDATION_MISSING_TEXT,
+        "El texto de la narración es requerido para la alineación.",
+        requestId
+      ),
+    };
+  }
+
+  logProviderRequest(requestId);
+
+  const url = `${ELEVENLABS_BASE_URL}/v1/forced-alignment`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  const startMs = Date.now();
+
+  try {
+    const formData = new FormData();
+    const audioBlob = new Blob([audioBuffer], { type: "audio/mpeg" });
+    formData.append("file", audioBlob, "narration.mp3");
+    formData.append("text", text);
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "xi-api-key": apiKey,
+      },
+      body: formData,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timer);
+    const durationMs = Date.now() - startMs;
+
+    if (!res.ok) {
+      return { ok: false, ...(await handleElevenLabsError(res, requestId, durationMs)) };
+    }
+
+    let rawData;
+    try {
+      rawData = await res.json();
+    } catch (_) {
+      return {
+        ok: false,
+        ...makeError(
+          502,
+          ERROR_CODES.ELEVENLABS_SERVER_ERROR,
+          "Invalid JSON from ElevenLabs forced-alignment endpoint.",
+          requestId
+        ),
+      };
+    }
+
+    const alignment = normalizeElevenLabsForcedAlignment(rawData);
+    if (!alignment) {
+      return {
+        ok: false,
+        ...makeError(
+          502,
+          ERROR_CODES.ELEVENLABS_SERVER_ERROR,
+          "Could not normalize alignment from provider response.",
+          requestId
+        ),
+      };
+    }
+
+    logProviderSuccess(requestId, {
+      durationMs,
+      hasAlignment: true,
+      alignmentWords: alignment.words.length,
+    });
+
+    return {
+      ok: true,
+      alignment,
+      durationMs,
+    };
+  } catch (err) {
+    clearTimeout(timer);
+    const durationMs = Date.now() - startMs;
+
+    if (err.name === "AbortError") {
+      logProviderError(requestId, { durationMs, error: "timeout" });
+      return {
+        ok: false,
+        ...makeError(504, ERROR_CODES.ELEVENLABS_TIMEOUT, "Forced alignment request timed out.", requestId),
+      };
+    }
+
+    logProviderError(requestId, { durationMs, error: err.message });
+    return {
+      ok: false,
+      ...makeError(
+        502,
+        ERROR_CODES.ELEVENLABS_NETWORK_ERROR,
+        "Network error communicating with ElevenLabs forced-alignment.",
+        requestId
+      ),
+    };
+  }
+}
+
 /** Invalidate caches (used in tests) */
 function _clearCache() {
   voicesCache = null;
@@ -728,6 +879,7 @@ function _clearCache() {
 
 module.exports = {
   generate,
+  alignAudio,
   listVoices,
   listModels,
   getVoiceLibrary,

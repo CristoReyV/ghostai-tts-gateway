@@ -33,6 +33,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/tts/alignment"
+  to = "/.netlify/functions/tts-alignment"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/tts/voices"
   to = "/.netlify/functions/tts-voices"
   status = 200

@@ -756,6 +756,59 @@ async function listGenerationItems(sessionId) {
 }
 
 /**
+ * Updates the alignment JSONB field of a generation item.
+ * @param {string} itemId
+ * @param {object | null} alignment
+ */
+async function updateGenerationItemAlignment(itemId, alignment) {
+  const now = new Date().toISOString();
+  if (isMemoryMode()) {
+    for (const [key, item] of _memoryItems.entries()) {
+      if (item.id === itemId) {
+        item.alignment = alignment;
+        item.updated_at = now;
+        return { ...item };
+      }
+    }
+    return null;
+  }
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("tts_generation_items")
+    .update({ alignment, updated_at: now })
+    .eq("id", itemId)
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+/**
+ * Gets a generation item by its ID.
+ * @param {string} itemId
+ */
+async function getGenerationItemById(itemId) {
+  if (isMemoryMode()) {
+    for (const item of _memoryItems.values()) {
+      if (item.id === itemId) return { ...item };
+    }
+    return null;
+  }
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("tts_generation_items")
+    .select("*")
+    .eq("id", itemId)
+    .single();
+
+  if (error) return null;
+  return data;
+}
+
+/**
  * Logs an operational event.
  * @param {{
  *   clientId?: string | null,
@@ -918,6 +971,8 @@ module.exports = {
   deleteGenerationSession,
   createOrUpdateGenerationItem,
   listGenerationItems,
+  updateGenerationItemAlignment,
+  getGenerationItemById,
   logOperationEvent,
   listOperationEvents,
   listAdminTtsSessions,

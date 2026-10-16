@@ -162,7 +162,13 @@ async function issueActivationToken(memberId, plaintextKey = null) {
   const tokenHash = hashSecret(activationToken);
 
   const expiresAt = new Date(Date.now() + INVITATION_EXPIRATION_DAYS * 86400 * 1000).toISOString();
-  const encryptedKey = plaintextKey ? safeEncryptKey(plaintextKey) : null;
+  let encryptedKey = plaintextKey ? safeEncryptKey(plaintextKey) : null;
+  if (!encryptedKey) {
+    const prev = await db.getLatestActivationTokenForMember(memberId);
+    if (prev && prev.encrypted_key) {
+      encryptedKey = prev.encrypted_key;
+    }
+  }
 
   // Revoke any previous active activation tokens for this member
   await db.revokeActivationTokensForMember(memberId);

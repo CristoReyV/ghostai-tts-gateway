@@ -921,6 +921,31 @@ async function revokeActivationTokensForMember(memberId) {
 }
 
 /**
+ * Retrieves the most recent activation token for a member that holds an escrowed key.
+ */
+async function getLatestActivationTokenForMember(memberId) {
+  if (isMemoryMode()) {
+    const list = Array.from(_memoryActivationTokens.values())
+      .filter((r) => r.member_id === memberId && r.encrypted_key)
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return list[0] ? { ...list[0] } : null;
+  }
+
+  const supabase = getSupabaseClient();
+  const { data: record, error } = await supabase
+    .from("ghostai_activation_tokens")
+    .select("*")
+    .eq("member_id", memberId)
+    .not("encrypted_key", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return record || null;
+}
+
+/**
  * Updates an activation token record (e.g. expiresAt or status).
  */
 async function updateActivationTokenRecord(tokenId, updates = {}) {
@@ -1516,6 +1541,7 @@ module.exports = {
   getActivationTokenByHash,
   consumeActivationToken,
   revokeActivationTokensForMember,
+  getLatestActivationTokenForMember,
   updateActivationTokenRecord,
   updateTokenExpiresAt,
   updateTokenStatus,

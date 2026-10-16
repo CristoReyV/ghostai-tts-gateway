@@ -101,7 +101,19 @@
   force = true
 
 [[redirects]]
+  from = "/api/admin/tokens"
+  to = "/.netlify/functions/admin-access-tokens"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/admin/access-tokens/revoke"
+  to = "/.netlify/functions/admin-access-tokens-revoke"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/admin/tokens/revoke"
   to = "/.netlify/functions/admin-access-tokens-revoke"
   status = 200
   force = true

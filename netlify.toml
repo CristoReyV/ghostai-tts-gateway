@@ -197,6 +197,42 @@
   force = true
 
 [[redirects]]
+  from = "/api/admin/auth/activate"
+  to = "/.netlify/functions/admin-auth-activate"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/admin/users/status"
+  to = "/.netlify/functions/admin-users-status"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/admin/users"
+  to = "/.netlify/functions/admin-users"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/admin/audit-logs"
+  to = "/.netlify/functions/admin-audit-logs"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/admin/members/email-preview"
+  to = "/.netlify/functions/admin-members-email-preview"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/admin/members/send-invitation"
+  to = "/.netlify/functions/admin-members-send-invitation"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/admin/tts/operations"
   to = "/.netlify/functions/admin-tts-operations"
   status = 200

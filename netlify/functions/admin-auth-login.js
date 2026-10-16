@@ -2,7 +2,10 @@
  * @file netlify/functions/admin-auth-login.js
  * POST /api/admin/auth/login
  *
- * Exchanges administrator credential for a temporary HttpOnly session cookie.
+ * Exchanges administrator credentials for a temporary HttpOnly session cookie.
+ * Supports:
+ *  1. Email + Password (individual admin users: owner or admin role)
+ *  2. Master adminToken (GHOSTAI_ADMIN_AUTH_TOKEN: system owner role)
  * NEVER stores the credential plaintext in browser client storage.
  */
 
@@ -12,6 +15,7 @@ const crypto = require("crypto");
 const { corsHeaders, preflightResponse } = require("./lib/cors");
 const { makeError, ERROR_CODES } = require("./lib/errors");
 const { buildAdminSessionCookie } = require("./lib/adminAuth");
+const { loginAdminWithPassword } = require("./lib/adminUserService");
 
 function jsonResponse(statusCode, body, origin, setCookie) {
   const headers = {
@@ -55,7 +59,36 @@ exports.handler = async (event) => {
     return jsonResponse(400, { error: err.error, requestId }, origin);
   }
 
-  const { adminToken } = body;
+  const { adminToken, email, password } = body;
+
+  // ── Mode 1: Individual Admin Email + Password ───────────────────────
+  if (email && typeof email === "string" && email.trim()) {
+    try {
+      const admin = await loginAdminWithPassword(email.trim(), password || "");
+      const sessionCookie = buildAdminSessionCookie(serverSecret.trim(), admin);
+      return jsonResponse(
+        200,
+        {
+          ok: true,
+          authenticated: true,
+          admin: {
+            id: admin.id,
+            name: admin.name,
+            email: admin.email,
+            role: admin.role,
+          },
+        },
+        origin,
+        sessionCookie
+      );
+    } catch (err) {
+      const statusCode = err.statusCode || 401;
+      const errPayload = makeError(statusCode, err.code || ERROR_CODES.AUTH_INVALID, err.message, requestId);
+      return jsonResponse(statusCode, { error: errPayload.error, requestId }, origin);
+    }
+  }
+
+  // ── Mode 2: Legacy Master Admin Token ──────────────────────────────
   if (!adminToken || typeof adminToken !== "string" || !adminToken.trim()) {
     const err = makeError(401, ERROR_CODES.AUTH_INVALID, "Invalid admin credential.", requestId);
     return jsonResponse(401, { error: err.error, requestId }, origin);
@@ -72,6 +105,22 @@ exports.handler = async (event) => {
     return jsonResponse(401, { error: err.error, requestId }, origin);
   }
 
-  const sessionCookie = buildAdminSessionCookie(serverSecret.trim());
-  return jsonResponse(200, { ok: true, authenticated: true }, origin, sessionCookie);
+  const systemOwner = {
+    id: "00000000-0000-0000-0000-000000000000",
+    name: "GhostAI Owner",
+    email: "owner@ghostai.internal",
+    role: "owner",
+  };
+
+  const sessionCookie = buildAdminSessionCookie(serverSecret.trim(), systemOwner);
+  return jsonResponse(
+    200,
+    {
+      ok: true,
+      authenticated: true,
+      admin: systemOwner,
+    },
+    origin,
+    sessionCookie
+  );
 };

@@ -2,7 +2,8 @@
  * @file netlify/functions/admin-auth-status.js
  * GET /api/admin/auth/status
  *
- * Checks if the current admin session is valid. Never returns credential.
+ * Checks if the current admin session is valid. Returns authenticated boolean and admin identity/role.
+ * Never returns credentials or secrets.
  */
 
 "use strict";
@@ -26,6 +27,10 @@ exports.handler = async (event) => {
       "Content-Type": "application/json",
       "Cache-Control": "no-store",
     },
-    body: JSON.stringify({ ok: true, authenticated: auth.ok === true }),
+    body: JSON.stringify({
+      ok: true,
+      authenticated: auth.ok === true,
+      admin: auth.ok ? auth.admin : null,
+    }),
   };
 };

@@ -1,8 +1,8 @@
 /**
- * @file adminAuth.js
+ * @file netlify/functions/lib/adminAuth.js
  * Dedicated administrator authentication middleware for management endpoints.
- * Validates GHOSTAI_ADMIN_AUTH_TOKEN server-side via Bearer header OR
- * temporary server-side session cookie (ghostai_admin_session).
+ * Validates individual admin sessions (ghostai_admin_session) with RBAC (owner / admin)
+ * OR fallback GHOSTAI_ADMIN_AUTH_TOKEN Bearer header (system owner).
  * Rejects client access tokens and legacy operator tokens on admin endpoints.
  */
 
@@ -12,7 +12,7 @@ const crypto = require("crypto");
 const { ERROR_CODES } = require("./errors");
 
 const ADMIN_COOKIE_NAME = "ghostai_admin_session";
-const SESSION_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours session limit
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours session limit
 
 /**
  * Parses cookies from event headers.
@@ -44,17 +44,23 @@ function parseCookies(event) {
 }
 
 /**
- * Creates a signed admin session token.
- * Payload: { role: 'admin', iat: number, exp: number, nonce: string }
- * Signature: HMAC-SHA256(payload, GHOSTAI_ADMIN_AUTH_TOKEN)
+ * Creates a signed admin session token with identity and role.
  *
  * @param {string} adminSecret
+ * @param {object} [adminData]
+ * @param {string} [adminData.id]
+ * @param {string} [adminData.email]
+ * @param {string} [adminData.name]
+ * @param {"owner" | "admin"} [adminData.role]
  * @returns {string}
  */
-function generateAdminSessionToken(adminSecret) {
+function generateAdminSessionToken(adminSecret, adminData = null) {
   const now = Date.now();
   const payload = {
-    role: "admin",
+    role: adminData?.role === "admin" ? "admin" : "owner",
+    adminId: adminData?.id || "system_owner",
+    email: adminData?.email || "owner@ghostai.internal",
+    name: adminData?.name || "GhostAI Owner",
     iat: now,
     exp: now + SESSION_TTL_MS,
     nonce: crypto.randomBytes(16).toString("hex"),
@@ -65,16 +71,16 @@ function generateAdminSessionToken(adminSecret) {
 }
 
 /**
- * Verifies an admin session token.
+ * Parses and verifies an admin session token, returning the payload object or null.
  *
  * @param {string} token
  * @param {string} adminSecret
- * @returns {boolean}
+ * @returns {object | null}
  */
-function verifyAdminSessionToken(token, adminSecret) {
-  if (!token || typeof token !== "string") return false;
+function parseAdminSessionToken(token, adminSecret) {
+  if (!token || typeof token !== "string") return null;
   const parts = token.split(".");
-  if (parts.length !== 2) return false;
+  if (parts.length !== 2) return null;
 
   const [payloadB64, providedHmac] = parts;
   const expectedHmac = crypto.createHmac("sha256", adminSecret).update(payloadB64).digest("base64url");
@@ -83,28 +89,38 @@ function verifyAdminSessionToken(token, adminSecret) {
   const expectedBuf = Buffer.from(expectedHmac);
 
   if (providedBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(providedBuf, expectedBuf)) {
-    return false;
+    return null;
   }
 
   try {
     const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8"));
-    if (payload.role !== "admin") return false;
-    if (typeof payload.exp !== "number" || payload.exp < Date.now()) return false;
-    return true;
+    if (typeof payload.exp !== "number" || payload.exp < Date.now()) return null;
+    return payload;
   } catch (_) {
-    return false;
+    return null;
   }
+}
+
+/**
+ * Verifies an admin session token (returns boolean for backward-compatibility).
+ *
+ * @param {string} token
+ * @param {string} adminSecret
+ * @returns {boolean}
+ */
+function verifyAdminSessionToken(token, adminSecret) {
+  return parseAdminSessionToken(token, adminSecret) !== null;
 }
 
 /**
  * Builds the Set-Cookie string for a new admin session.
  *
  * @param {string} adminSecret
+ * @param {object} [adminData]
  * @returns {string}
  */
-function buildAdminSessionCookie(adminSecret) {
-  const token = generateAdminSessionToken(adminSecret);
-  // Session cookie: no Max-Age / Expires => browser session lifetime
+function buildAdminSessionCookie(adminSecret, adminData = null) {
+  const token = generateAdminSessionToken(adminSecret, adminData);
   return `${ADMIN_COOKIE_NAME}=${token}; Path=/api/admin; HttpOnly; Secure; SameSite=Strict`;
 }
 
@@ -124,9 +140,10 @@ function buildAdminLogoutCookie() {
  *
  * @param {object} event - Netlify function event
  * @param {string} [requestId=""] - Optional request ID for error payload
- * @returns {{ ok: true } | { ok: false, statusCode: number, error: { code: string, message: string }, requestId: string }}
+ * @param {"owner" | "admin" | null} [requiredRole=null] - Minimum required role
+ * @returns {{ ok: true, admin: { id: string, email: string, name: string, role: string } } | { ok: false, statusCode: number, error: { code: string, message: string }, requestId: string }}
  */
-function requireAdminAuth(event, requestId = "") {
+function requireAdminAuth(event, requestId = "", requiredRole = null) {
   const secret = process.env.GHOSTAI_ADMIN_AUTH_TOKEN;
 
   // Fail closed if server admin token is not configured
@@ -147,11 +164,33 @@ function requireAdminAuth(event, requestId = "") {
   // 1. Check Session Cookie first
   const cookies = parseCookies(event);
   const sessionToken = cookies[ADMIN_COOKIE_NAME];
-  if (sessionToken && verifyAdminSessionToken(sessionToken, trimmedSecret)) {
-    return { ok: true };
+  if (sessionToken) {
+    const payload = parseAdminSessionToken(sessionToken, trimmedSecret);
+    if (payload) {
+      const admin = {
+        id: payload.adminId || "system_owner",
+        email: payload.email || "owner@ghostai.internal",
+        name: payload.name || "GhostAI Owner",
+        role: payload.role || "owner",
+      };
+
+      if (requiredRole === "owner" && admin.role !== "owner") {
+        return {
+          ok: false,
+          statusCode: 403,
+          error: {
+            code: "FORBIDDEN",
+            message: "Acceso denegado: solo el OWNER puede realizar esta acción.",
+          },
+          requestId,
+        };
+      }
+
+      return { ok: true, admin };
+    }
   }
 
-  // 2. Check Authorization Header as fallback (for CLI / tests / programmatic calls)
+  // 2. Check Authorization Header as fallback (Bearer GHOSTAI_ADMIN_AUTH_TOKEN)
   const authHeader =
     event?.headers?.authorization ||
     event?.headers?.Authorization ||
@@ -169,7 +208,15 @@ function requireAdminAuth(event, requestId = "") {
           expectedBuf.length === actualBuf.length &&
           crypto.timingSafeEqual(expectedBuf, actualBuf)
         ) {
-          return { ok: true };
+          return {
+            ok: true,
+            admin: {
+              id: "00000000-0000-0000-0000-000000000000",
+              email: "owner@ghostai.internal",
+              name: "GhostAI Owner",
+              role: "owner",
+            },
+          };
         }
       }
     }
@@ -193,4 +240,6 @@ module.exports = {
   buildAdminSessionCookie,
   buildAdminLogoutCookie,
   verifyAdminSessionToken,
+  parseAdminSessionToken,
+  generateAdminSessionToken,
 };

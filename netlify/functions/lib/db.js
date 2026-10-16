@@ -26,6 +26,9 @@ let _memoryItems = new Map(); // key: `${sessionId}:${narrationId}`
 let _memoryEvents = [];
 let _memoryMembers = new Map(); // key: memberId
 let _memoryActivationTokens = new Map(); // key: tokenHash
+let _memoryAdminUsers = new Map(); // key: adminId
+let _memoryAdminActivationTokens = new Map(); // key: tokenHash
+let _memoryAdminAuditLogs = [];
 
 function _resetMemoryStore() {
   _memoryClients.clear();
@@ -35,6 +38,9 @@ function _resetMemoryStore() {
   _memoryEvents = [];
   _memoryMembers.clear();
   _memoryActivationTokens.clear();
+  _memoryAdminUsers.clear();
+  _memoryAdminActivationTokens.clear();
+  _memoryAdminAuditLogs = [];
 }
 
 function _setMemoryStoreEnabled(enabled) {
@@ -1506,6 +1512,371 @@ async function getExpiredSessions() {
   return data || [];
 }
 
+// ── Admin Users Operations ──────────────────────────────────────────
+
+/**
+ * Creates an admin user record.
+ */
+async function createAdminUserRecord({ name, email, role = "admin", status = "pending", passwordHash = null, invitedBy = null }) {
+  const normalizedEmail = email.toLowerCase().trim();
+  const now = new Date().toISOString();
+  if (isMemoryMode()) {
+    const id = crypto.randomUUID();
+    const record = {
+      id,
+      name: name.trim(),
+      email: normalizedEmail,
+      role: role === "owner" ? "owner" : "admin",
+      status,
+      password_hash: passwordHash,
+      created_at: now,
+      invited_at: status === "pending" ? now : null,
+      activated_at: status === "active" ? now : null,
+      last_login_at: null,
+      invited_by: invitedBy || null,
+    };
+    _memoryAdminUsers.set(id, record);
+    return { ...record };
+  }
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("ghostai_admin_users")
+    .insert([
+      {
+        name: name.trim(),
+        email: normalizedEmail,
+        role: role === "owner" ? "owner" : "admin",
+        status,
+        password_hash: passwordHash,
+        invited_at: status === "pending" ? now : null,
+        activated_at: status === "active" ? now : null,
+        invited_by: invitedBy || null,
+      },
+    ])
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+/**
+ * Retrieves an admin user by ID.
+ */
+async function getAdminUserById(id) {
+  if (isMemoryMode()) {
+    const user = _memoryAdminUsers.get(id);
+    return user ? { ...user } : null;
+  }
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("ghostai_admin_users")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return data || null;
+}
+
+/**
+ * Retrieves an admin user by email (case-insensitive).
+ */
+async function getAdminUserByEmail(email) {
+  const normalized = email.toLowerCase().trim();
+  if (isMemoryMode()) {
+    for (const user of _memoryAdminUsers.values()) {
+      if (user.email.toLowerCase() === normalized) {
+        return { ...user };
+      }
+    }
+    return null;
+  }
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("ghostai_admin_users")
+    .select("*")
+    .ilike("email", normalized)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return data || null;
+}
+
+/**
+ * Lists all admin users.
+ */
+async function listAdminUsers() {
+  if (isMemoryMode()) {
+    const list = Array.from(_memoryAdminUsers.values()).map((u) => {
+      const copy = { ...u };
+      delete copy.password_hash;
+      return copy;
+    });
+    return list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  }
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("ghostai_admin_users")
+    .select("id, name, email, role, status, created_at, invited_at, activated_at, last_login_at, invited_by")
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+/**
+ * Updates an admin user.
+ */
+async function updateAdminUser(id, updates) {
+  if (isMemoryMode()) {
+    const user = _memoryAdminUsers.get(id);
+    if (!user) return null;
+    Object.assign(user, updates);
+    const copy = { ...user };
+    delete copy.password_hash;
+    return copy;
+  }
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("ghostai_admin_users")
+    .update(updates)
+    .eq("id", id)
+    .select("id, name, email, role, status, created_at, invited_at, activated_at, last_login_at, invited_by")
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data || null;
+}
+
+/**
+ * Counts active owners.
+ */
+async function countActiveOwners() {
+  if (isMemoryMode()) {
+    let count = 0;
+    for (const u of _memoryAdminUsers.values()) {
+      if (u.role === "owner" && u.status === "active") count++;
+    }
+    return count;
+  }
+
+  const supabase = getSupabaseClient();
+  const { count, error } = await supabase
+    .from("ghostai_admin_users")
+    .select("*", { count: "exact", head: true })
+    .eq("role", "owner")
+    .eq("status", "active");
+
+  if (error) throw new Error(error.message);
+  return count || 0;
+}
+
+// ── Admin Activation Tokens ──────────────────────────────────────────
+
+/**
+ * Creates an admin activation token record.
+ */
+async function createAdminActivationTokenRecord({ adminId, tokenHash, tokenPublicId, expiresAt }) {
+  const now = new Date().toISOString();
+  if (isMemoryMode()) {
+    const id = crypto.randomUUID();
+    const record = {
+      id,
+      admin_id: adminId,
+      token_hash: tokenHash,
+      token_public_id: tokenPublicId,
+      status: "active",
+      created_at: now,
+      expires_at: expiresAt,
+      consumed_at: null,
+    };
+    _memoryAdminActivationTokens.set(tokenHash, record);
+    return { ...record };
+  }
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("ghostai_admin_activation_tokens")
+    .insert([
+      {
+        admin_id: adminId,
+        token_hash: tokenHash,
+        token_public_id: tokenPublicId,
+        status: "active",
+        expires_at: expiresAt,
+      },
+    ])
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+/**
+ * Finds an admin activation token by its HMAC hash.
+ */
+async function getAdminActivationTokenByHash(tokenHash) {
+  if (isMemoryMode()) {
+    const record = _memoryAdminActivationTokens.get(tokenHash);
+    if (!record) return null;
+    const admin = _memoryAdminUsers.get(record.admin_id);
+    return {
+      ...record,
+      admin: admin ? { ...admin } : null,
+    };
+  }
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("ghostai_admin_activation_tokens")
+    .select(`
+      *,
+      admin:ghostai_admin_users(*)
+    `)
+    .eq("token_hash", tokenHash)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return data || null;
+}
+
+/**
+ * Consumes an admin activation token.
+ */
+async function consumeAdminActivationToken(tokenId) {
+  const now = new Date().toISOString();
+  if (isMemoryMode()) {
+    for (const record of _memoryAdminActivationTokens.values()) {
+      if (record.id === tokenId) {
+        record.status = "consumed";
+        record.consumed_at = now;
+        return { ...record };
+      }
+    }
+    return null;
+  }
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("ghostai_admin_activation_tokens")
+    .update({
+      status: "consumed",
+      consumed_at: now,
+    })
+    .eq("id", tokenId)
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data || null;
+}
+
+// ── Admin Audit Logs ─────────────────────────────────────────────────
+
+/**
+ * Logs an administrative audit event.
+ * Never logs secrets, passwords, or tokens.
+ */
+async function logAdminAuditEvent({ adminId, adminEmail, adminRole, action, targetId = null, metadata = {} }) {
+  const now = new Date().toISOString();
+  const cleanMeta = sanitizeOperationalMetadata(metadata);
+  const record = {
+    id: crypto.randomUUID(),
+    admin_id: adminId || null,
+    admin_email: adminEmail || "system",
+    admin_role: adminRole || "owner",
+    action,
+    target_id: targetId ? String(targetId) : null,
+    metadata: cleanMeta,
+    created_at: now,
+  };
+
+  if (isMemoryMode()) {
+    _memoryAdminAuditLogs.push(record);
+    return record;
+  }
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("ghostai_admin_audit_logs")
+    .insert([
+      {
+        admin_id: adminId || null,
+        admin_email: adminEmail || "system",
+        admin_role: adminRole || "owner",
+        action,
+        target_id: targetId ? String(targetId) : null,
+        metadata: cleanMeta,
+      },
+    ])
+    .select()
+    .single();
+
+  if (error) {
+    console.warn("Failed to insert admin audit log:", error.message);
+    return record;
+  }
+  return data;
+}
+
+/**
+ * Lists administrative audit logs.
+ */
+async function listAdminAuditLogs(limit = 100, offset = 0) {
+  if (isMemoryMode()) {
+    return [..._memoryAdminAuditLogs]
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      .slice(offset, offset + limit);
+  }
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("ghostai_admin_audit_logs")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+/**
+ * Updates member email dispatch status.
+ */
+async function updateMemberEmailStatus(memberId, { status, sentAt = null, sentBy = null, error = null }) {
+  const updates = {
+    last_email_status: status,
+    last_email_sent_at: sentAt || new Date().toISOString(),
+    last_email_sent_by: sentBy || null,
+    last_email_error: error || null,
+  };
+
+  if (isMemoryMode()) {
+    const m = _memoryMembers.get(memberId);
+    if (!m) return null;
+    Object.assign(m, updates);
+    return { ...m };
+  }
+
+  const supabase = getSupabaseClient();
+  const { data, error: sbErr } = await supabase
+    .from("ghostai_members")
+    .update(updates)
+    .eq("id", memberId)
+    .select()
+    .single();
+
+  if (sbErr) throw new Error(sbErr.message);
+  return data;
+}
+
 module.exports = {
   createClient,
   getClientById,
@@ -1545,6 +1916,18 @@ module.exports = {
   updateActivationTokenRecord,
   updateTokenExpiresAt,
   updateTokenStatus,
+  createAdminUserRecord,
+  getAdminUserById,
+  getAdminUserByEmail,
+  listAdminUsers,
+  updateAdminUser,
+  countActiveOwners,
+  createAdminActivationTokenRecord,
+  getAdminActivationTokenByHash,
+  consumeAdminActivationToken,
+  logAdminAuditEvent,
+  listAdminAuditLogs,
+  updateMemberEmailStatus,
   _resetMemoryStore,
   _setMemoryStoreEnabled,
   isMemoryMode,

@@ -433,7 +433,7 @@ async function revokeToken(tokenId) {
   const supabase = getSupabaseClient();
   const { data: record, error } = await supabase
     .from("ghostai_access_tokens")
-    .update({ status, revoked_at: now })
+    .update({ status: "revoked", revoked_at: now })
     .eq("id", tokenId)
     .select("id, status, revoked_at")
     .maybeSingle();

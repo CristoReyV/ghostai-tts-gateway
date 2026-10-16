@@ -24,6 +24,8 @@ let _memoryTokens = new Map();
 let _memorySessions = new Map();
 let _memoryItems = new Map(); // key: `${sessionId}:${narrationId}`
 let _memoryEvents = [];
+let _memoryMembers = new Map(); // key: memberId
+let _memoryActivationTokens = new Map(); // key: tokenHash
 
 function _resetMemoryStore() {
   _memoryClients.clear();
@@ -31,6 +33,8 @@ function _resetMemoryStore() {
   _memorySessions.clear();
   _memoryItems.clear();
   _memoryEvents = [];
+  _memoryMembers.clear();
+  _memoryActivationTokens.clear();
 }
 
 function _setMemoryStoreEnabled(enabled) {
@@ -465,6 +469,529 @@ async function updateTokenLastUsed(tokenId) {
   } catch (_) {
     // Non-blocking update
   }
+}
+
+// ── Member Operations ───────────────────────────────────────────────
+
+/**
+ * Computes effective status for a member (e.g. checks expiration).
+ */
+function enrichMemberStatus(m) {
+  if (!m) return null;
+  let status = m.status;
+  if (status === "active" && m.expires_at) {
+    if (new Date(m.expires_at).getTime() <= Date.now()) {
+      status = "expired";
+    }
+  }
+  return {
+    ...m,
+    status,
+    computedStatus: status,
+  };
+}
+
+/**
+ * Creates a member record.
+ * Status defaults to 'pending'.
+ */
+async function createMemberRecord({ clientId, keyId, name, email, accessPlan }) {
+  const normalizedEmail = email.trim();
+  const normalizedPlan = (accessPlan === "annual" || accessPlan === "Anual") ? "annual" : "monthly";
+  const now = new Date().toISOString();
+
+  if (isMemoryMode()) {
+    // Check duplicate
+    for (const m of _memoryMembers.values()) {
+      if (m.email.toLowerCase() === normalizedEmail.toLowerCase()) {
+        const err = new Error("Member with this email already exists");
+        err.code = "MEMBER_ALREADY_EXISTS";
+        throw err;
+      }
+    }
+    const id = crypto.randomUUID();
+    const record = {
+      id,
+      client_id: clientId,
+      key_id: keyId || null,
+      name: name.trim(),
+      email: normalizedEmail,
+      access_plan: normalizedPlan,
+      status: "pending",
+      created_at: now,
+      invited_at: null,
+      activated_at: null,
+      expires_at: null,
+      revoked_at: null,
+    };
+    _memoryMembers.set(id, record);
+    return { ...record };
+  }
+
+  const supabase = getSupabaseClient();
+  const { data: record, error } = await supabase
+    .from("ghostai_members")
+    .insert([
+      {
+        client_id: clientId,
+        key_id: keyId || null,
+        name: name.trim(),
+        email: normalizedEmail,
+        access_plan: normalizedPlan,
+        status: "pending",
+      },
+    ])
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === "23505" || error.message?.includes("unique")) {
+      const err = new Error("Member with this email already exists");
+      err.code = "MEMBER_ALREADY_EXISTS";
+      throw err;
+    }
+    throw new Error(error.message);
+  }
+  return record;
+}
+
+/**
+ * Gets a member by ID.
+ */
+async function getMemberById(memberId) {
+  if (isMemoryMode()) {
+    const m = _memoryMembers.get(memberId);
+    if (!m) return null;
+    return enrichMemberStatus({ ...m });
+  }
+
+  const supabase = getSupabaseClient();
+  const { data: record, error } = await supabase
+    .from("ghostai_members")
+    .select(`
+      *,
+      client:ghostai_clients(id, name, email, status),
+      key:ghostai_access_tokens(id, token_public_id, status, expires_at, last_used_at)
+    `)
+    .eq("id", memberId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return record ? enrichMemberStatus(record) : null;
+}
+
+/**
+ * Gets a member by email (case-insensitive).
+ */
+async function getMemberByEmail(email) {
+  if (!email || typeof email !== "string") return null;
+  const target = email.trim().toLowerCase();
+
+  if (isMemoryMode()) {
+    for (const m of _memoryMembers.values()) {
+      if (m.email.toLowerCase() === target) {
+        return enrichMemberStatus({ ...m });
+      }
+    }
+    return null;
+  }
+
+  const supabase = getSupabaseClient();
+  const { data: record, error } = await supabase
+    .from("ghostai_members")
+    .select(`
+      *,
+      client:ghostai_clients(id, name, email, status),
+      key:ghostai_access_tokens(id, token_public_id, status, expires_at, last_used_at)
+    `)
+    .ilike("email", target)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return record ? enrichMemberStatus(record) : null;
+}
+
+/**
+ * Gets a member by clientId.
+ */
+async function getMemberByClientId(clientId) {
+  if (isMemoryMode()) {
+    for (const m of _memoryMembers.values()) {
+      if (m.client_id === clientId) {
+        return enrichMemberStatus({ ...m });
+      }
+    }
+    return null;
+  }
+
+  const supabase = getSupabaseClient();
+  const { data: record, error } = await supabase
+    .from("ghostai_members")
+    .select("*")
+    .eq("client_id", clientId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return record ? enrichMemberStatus(record) : null;
+}
+
+/**
+ * Lists all members with enriched token metadata.
+ */
+async function listMembers() {
+  if (isMemoryMode()) {
+    const list = Array.from(_memoryMembers.values()).map((m) => {
+      const enriched = enrichMemberStatus({ ...m });
+      let tokenPublicId = null;
+      let lastUsedAt = null;
+      if (m.key_id) {
+        for (const t of _memoryTokens.values()) {
+          if (t.id === m.key_id) {
+            tokenPublicId = t.token_public_id;
+            lastUsedAt = t.last_used_at;
+            break;
+          }
+        }
+      }
+      return {
+        ...enriched,
+        tokenPublicId,
+        lastUsedAt,
+      };
+    });
+    return list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  }
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("ghostai_members")
+    .select(`
+      *,
+      client:ghostai_clients(id, name, email, status),
+      key:ghostai_access_tokens(id, token_public_id, status, expires_at, last_used_at)
+    `)
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(error.message);
+  return (data || []).map((m) => {
+    const enriched = enrichMemberStatus(m);
+    return {
+      ...enriched,
+      tokenPublicId: m.key?.token_public_id || null,
+      lastUsedAt: m.key?.last_used_at || null,
+    };
+  });
+}
+
+/**
+ * Updates a member.
+ */
+async function updateMember(memberId, updates) {
+  if (isMemoryMode()) {
+    const m = _memoryMembers.get(memberId);
+    if (!m) return null;
+    Object.assign(m, updates);
+    return enrichMemberStatus({ ...m });
+  }
+
+  const supabase = getSupabaseClient();
+  const { data: record, error } = await supabase
+    .from("ghostai_members")
+    .update(updates)
+    .eq("id", memberId)
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  return record ? enrichMemberStatus(record) : null;
+}
+
+/**
+ * Renews a member (+30 days if monthly, +365 days if annual).
+ * If active: adds from current expires_at.
+ * If expired / other: adds from now.
+ */
+async function renewMember(memberId, extension = null) {
+  const member = await getMemberById(memberId);
+  if (!member) {
+    const err = new Error("Member not found");
+    err.code = "MEMBER_NOT_FOUND";
+    throw err;
+  }
+
+  const plan = extension || member.access_plan;
+  const days = plan === "annual" ? 365 : 30;
+  const durationMs = days * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+
+  let baseTime = now;
+  if (member.status === "active" && member.expires_at) {
+    const currentExp = new Date(member.expires_at).getTime();
+    if (currentExp > now) {
+      baseTime = currentExp;
+    }
+  }
+
+  const newExpiresAt = new Date(baseTime + durationMs).toISOString();
+
+  // Update member
+  const updatedMember = await updateMember(memberId, {
+    status: "active",
+    expires_at: newExpiresAt,
+    revoked_at: null,
+  });
+
+  // Update associated access token in ghostai_access_tokens
+  if (member.key_id) {
+    await updateTokenExpiresAt(member.key_id, newExpiresAt);
+    await updateTokenStatus(member.key_id, "active");
+  }
+
+  // Reactivate client if was suspended
+  if (member.client_id) {
+    await updateClientStatus(member.client_id, "active");
+  }
+
+  return updatedMember;
+}
+
+/**
+ * Revokes a member and all their access credentials immediately.
+ */
+async function revokeMember(memberId) {
+  const member = await getMemberById(memberId);
+  if (!member) {
+    const err = new Error("Member not found");
+    err.code = "MEMBER_NOT_FOUND";
+    throw err;
+  }
+
+  const now = new Date().toISOString();
+
+  // 1. Mark member revoked
+  const updatedMember = await updateMember(memberId, {
+    status: "revoked",
+    revoked_at: now,
+  });
+
+  // 2. Revoke key in ghostai_access_tokens
+  if (member.key_id) {
+    await revokeToken(member.key_id);
+  }
+
+  // 3. Suspend client in ghostai_clients
+  if (member.client_id) {
+    await updateClientStatus(member.client_id, "suspended");
+  }
+
+  // 4. Revoke pending activation tokens
+  await revokeActivationTokensForMember(memberId);
+
+  return updatedMember;
+}
+
+// ── Activation Tokens Operations ────────────────────────────────────
+
+/**
+ * Creates an activation token record.
+ */
+async function createActivationTokenRecord({ memberId, tokenHash, tokenPublicId, encryptedKey = null, expiresAt }) {
+  const now = new Date().toISOString();
+  if (isMemoryMode()) {
+    const id = crypto.randomUUID();
+    const record = {
+      id,
+      member_id: memberId,
+      token_hash: tokenHash,
+      token_public_id: tokenPublicId || null,
+      encrypted_key: encryptedKey || null,
+      status: "active",
+      created_at: now,
+      expires_at: expiresAt,
+      consumed_at: null,
+    };
+    _memoryActivationTokens.set(tokenHash, record);
+    return { ...record };
+  }
+
+  const supabase = getSupabaseClient();
+  const { data: record, error } = await supabase
+    .from("ghostai_activation_tokens")
+    .insert([
+      {
+        member_id: memberId,
+        token_hash: tokenHash,
+        token_public_id: tokenPublicId || null,
+        encrypted_key: encryptedKey || null,
+        status: "active",
+        expires_at: expiresAt,
+      },
+    ])
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  return record;
+}
+
+/**
+ * Finds an activation token by its HMAC hash.
+ */
+async function getActivationTokenByHash(tokenHash) {
+  if (isMemoryMode()) {
+    const record = _memoryActivationTokens.get(tokenHash);
+    if (!record) return null;
+    const member = _memoryMembers.get(record.member_id);
+    return {
+      ...record,
+      member: member ? enrichMemberStatus({ ...member }) : null,
+    };
+  }
+
+  const supabase = getSupabaseClient();
+  const { data: record, error } = await supabase
+    .from("ghostai_activation_tokens")
+    .select(`
+      *,
+      member:ghostai_members(*)
+    `)
+    .eq("token_hash", tokenHash)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!record) return null;
+  return {
+    ...record,
+    member: record.member ? enrichMemberStatus(record.member) : null,
+  };
+}
+
+/**
+ * Consumes an activation token (marks consumed, wipes encrypted_key).
+ */
+async function consumeActivationToken(tokenId) {
+  const now = new Date().toISOString();
+  if (isMemoryMode()) {
+    for (const record of _memoryActivationTokens.values()) {
+      if (record.id === tokenId) {
+        record.status = "consumed";
+        record.consumed_at = now;
+        record.encrypted_key = null;
+        return { ...record };
+      }
+    }
+    return null;
+  }
+
+  const supabase = getSupabaseClient();
+  const { data: record, error } = await supabase
+    .from("ghostai_activation_tokens")
+    .update({
+      status: "consumed",
+      consumed_at: now,
+      encrypted_key: null,
+    })
+    .eq("id", tokenId)
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  return record || null;
+}
+
+/**
+ * Revokes all active activation tokens for a member.
+ */
+async function revokeActivationTokensForMember(memberId) {
+  if (isMemoryMode()) {
+    for (const record of _memoryActivationTokens.values()) {
+      if (record.member_id === memberId && record.status === "active") {
+        record.status = "revoked";
+      }
+    }
+    return;
+  }
+
+  const supabase = getSupabaseClient();
+  await supabase
+    .from("ghostai_activation_tokens")
+    .update({ status: "revoked" })
+    .eq("member_id", memberId)
+    .eq("status", "active");
+}
+
+/**
+ * Updates an activation token record (e.g. expiresAt or status).
+ */
+async function updateActivationTokenRecord(tokenId, updates = {}) {
+  if (isMemoryMode()) {
+    for (const record of _memoryActivationTokens.values()) {
+      if (record.id === tokenId) {
+        if (updates.expiresAt !== undefined) record.expires_at = updates.expiresAt;
+        if (updates.status !== undefined) record.status = updates.status;
+        return { ...record };
+      }
+    }
+    return null;
+  }
+
+  const supabase = getSupabaseClient();
+  const updateData = {};
+  if (updates.expiresAt !== undefined) updateData.expires_at = updates.expiresAt;
+  if (updates.status !== undefined) updateData.status = updates.status;
+
+  const { data, error } = await supabase
+    .from("ghostai_activation_tokens")
+    .update(updateData)
+    .eq("id", tokenId)
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+/**
+ * Updates token expiration timestamp in ghostai_access_tokens.
+ */
+async function updateTokenExpiresAt(tokenId, expiresAt) {
+  if (isMemoryMode()) {
+    for (const record of _memoryTokens.values()) {
+      if (record.id === tokenId) {
+        record.expires_at = expiresAt;
+        return;
+      }
+    }
+    return;
+  }
+
+  const supabase = getSupabaseClient();
+  await supabase
+    .from("ghostai_access_tokens")
+    .update({ expires_at: expiresAt })
+    .eq("id", tokenId);
+}
+
+/**
+ * Updates token status in ghostai_access_tokens.
+ */
+async function updateTokenStatus(tokenId, status) {
+  if (isMemoryMode()) {
+    for (const record of _memoryTokens.values()) {
+      if (record.id === tokenId) {
+        record.status = status;
+        if (status === "active") record.revoked_at = null;
+        return;
+      }
+    }
+    return;
+  }
+
+  const supabase = getSupabaseClient();
+  await supabase
+    .from("ghostai_access_tokens")
+    .update({ status, revoked_at: status === "active" ? null : new Date().toISOString() })
+    .eq("id", tokenId);
 }
 
 // ── TTS Generation Sessions & Items ──────────────────────────────────
@@ -977,6 +1504,21 @@ module.exports = {
   listOperationEvents,
   listAdminTtsSessions,
   getExpiredSessions,
+  createMemberRecord,
+  getMemberById,
+  getMemberByEmail,
+  getMemberByClientId,
+  listMembers,
+  updateMember,
+  renewMember,
+  revokeMember,
+  createActivationTokenRecord,
+  getActivationTokenByHash,
+  consumeActivationToken,
+  revokeActivationTokensForMember,
+  updateActivationTokenRecord,
+  updateTokenExpiresAt,
+  updateTokenStatus,
   _resetMemoryStore,
   _setMemoryStoreEnabled,
   isMemoryMode,

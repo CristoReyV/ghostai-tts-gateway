@@ -7,3 +7,4 @@ node_modules/
 Thumbs.db
 coverage/
 scripts/shared-voices-audit.json
+supabase/.temp/

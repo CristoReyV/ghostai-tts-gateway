@@ -213,6 +213,54 @@ async function verifyClientToken(token, requestId) {
     };
   }
 
+  // Verify member status if this client is a registered member
+  try {
+    const member = await db.getMemberByClientId(tokenRecord.client_id);
+    if (member) {
+      if (member.status === "revoked") {
+        return {
+          ok: false,
+          authenticated: false,
+          statusCode: 401,
+          error: {
+            code: ERROR_CODES.AUTH_INVALID,
+            message: "Member access has been revoked.",
+          },
+          requestId,
+        };
+      }
+      if (member.status === "pending" || member.status === "invited") {
+        return {
+          ok: false,
+          authenticated: false,
+          statusCode: 401,
+          error: {
+            code: ERROR_CODES.AUTH_INVALID,
+            message: "Member access has not been activated yet.",
+          },
+          requestId,
+        };
+      }
+      if (member.expires_at) {
+        const memberExp = new Date(member.expires_at).getTime();
+        if (memberExp <= Date.now()) {
+          return {
+            ok: false,
+            authenticated: false,
+            statusCode: 401,
+            error: {
+              code: ERROR_CODES.AUTH_INVALID,
+              message: "Member access has expired.",
+            },
+            requestId,
+          };
+        }
+      }
+    }
+  } catch (_) {
+    // Non-blocking member lookup fallback
+  }
+
   // Non-blocking update of last_used_at
   db.updateTokenLastUsed(tokenRecord.id).catch(() => {});
 

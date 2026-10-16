@@ -35,6 +35,7 @@
     "jest": "^30.0.0"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.117.2"
+    "@supabase/supabase-js": "^2.117.2",
+    "jszip": "^3.10.2"
   }
 }

@@ -107,6 +107,48 @@
   force = true
 
 [[redirects]]
+  from = "/api/admin/members/bulk"
+  to = "/.netlify/functions/admin-members-bulk"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/admin/members/renew"
+  to = "/.netlify/functions/admin-members-renew"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/admin/members/revoke"
+  to = "/.netlify/functions/admin-members-revoke"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/admin/members/invite"
+  to = "/.netlify/functions/admin-members-invite"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/admin/members/regenerate-key"
+  to = "/.netlify/functions/admin-members-regenerate-key"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/admin/members"
+  to = "/.netlify/functions/admin-members"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/members/activate"
+  to = "/.netlify/functions/members-activate"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/admin/tts/operations"
   to = "/.netlify/functions/admin-tts-operations"
   status = 200

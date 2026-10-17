@@ -16,6 +16,7 @@ const { corsHeaders, preflightResponse } = require("./lib/cors");
 const { makeError, ERROR_CODES } = require("./lib/errors");
 const { buildAdminSessionCookie } = require("./lib/adminAuth");
 const { loginAdminWithPassword } = require("./lib/adminUserService");
+const { loginAdminWithKey } = require("./lib/adminKeyService");
 
 function jsonResponse(statusCode, body, origin, setCookie) {
   const headers = {
@@ -59,7 +60,15 @@ exports.handler = async (event) => {
     return jsonResponse(400, { error: err.error, requestId }, origin);
   }
 
-  const { adminToken, email, password } = body;
+  const { adminToken, adminKey, email, password } = body;
+  if (adminKey !== undefined) {
+    try {
+      const admin = await loginAdminWithKey(adminKey);
+      return jsonResponse(200, { ok: true, authenticated: true, admin: { id: admin.id, name: admin.name, email: admin.email, role: admin.role } }, origin, buildAdminSessionCookie(serverSecret.trim(), admin));
+    } catch (_) {
+      return jsonResponse(401, { error: { code: "AUTH_INVALID", message: "Admin key inválida o revocada." }, requestId }, origin);
+    }
+  }
 
   // ── Mode 1: Individual Admin Email + Password ───────────────────────
   if (email && typeof email === "string" && email.trim()) {

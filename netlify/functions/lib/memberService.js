@@ -178,6 +178,7 @@ async function issueActivationToken(memberId, plaintextKey = null) {
     tokenHash,
     tokenPublicId,
     encryptedKey,
+    encryptedInvitationToken: safeEncryptKey(activationToken),
     expiresAt,
   });
 

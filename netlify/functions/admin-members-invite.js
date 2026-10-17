@@ -15,8 +15,9 @@
 const crypto = require("crypto");
 const { corsHeaders, preflightResponse } = require("./lib/cors");
 const { makeError, ERROR_CODES } = require("./lib/errors");
-const { requireAdminAuth } = require("./lib/adminAuth");
+const { authorizeAdmin: requireAdminAuth } = require("./lib/adminAuthorization");
 const { inviteMember } = require("./lib/memberService");
+const db = require("./lib/db");
 
 function jsonResponse(statusCode, body, origin) {
   return {
@@ -38,7 +39,7 @@ exports.handler = async (event) => {
   const requestId = crypto.randomUUID();
 
   // Admin auth guard
-  const adminAuth = requireAdminAuth(event, requestId);
+  const adminAuth = await requireAdminAuth(event, requestId, "member.invitation.link");
   if (!adminAuth.ok) {
     return jsonResponse(adminAuth.statusCode, { error: adminAuth.error, requestId }, origin);
   }
@@ -75,6 +76,7 @@ exports.handler = async (event) => {
     for (const id of targetIds) {
       try {
         const result = await inviteMember(id);
+        await db.logAdminAuditEvent({ adminId: adminAuth.admin.id, adminEmail: adminAuth.admin.email, adminRole: adminAuth.admin.role, action: "invite_link_created", targetId: id });
         invitations.push({
           memberId: id,
           activationToken: result.activationToken,

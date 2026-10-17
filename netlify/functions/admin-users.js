@@ -9,7 +9,7 @@
 const crypto = require("crypto");
 const { corsHeaders, preflightResponse } = require("./lib/cors");
 const { makeError, ERROR_CODES } = require("./lib/errors");
-const { requireAdminAuth } = require("./lib/adminAuth");
+const { authorizeAdmin: requireAdminAuth } = require("./lib/adminAuthorization");
 const { inviteAdminUser } = require("./lib/adminUserService");
 const db = require("./lib/db");
 
@@ -33,7 +33,7 @@ exports.handler = async (event) => {
   const requestId = crypto.randomUUID();
 
   // Guard: OWNER ONLY
-  const auth = requireAdminAuth(event, requestId, "owner");
+  const auth = await requireAdminAuth(event, requestId, "owner");
   if (!auth.ok) {
     return jsonResponse(auth.statusCode, { error: auth.error, requestId }, origin);
   }

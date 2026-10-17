@@ -11,7 +11,7 @@
 const crypto = require("crypto");
 const { corsHeaders, preflightResponse } = require("./lib/cors");
 const { makeError, ERROR_CODES } = require("./lib/errors");
-const { requireAdminAuth } = require("./lib/adminAuth");
+const { authorizeAdmin: requireAdminAuth } = require("./lib/adminAuthorization");
 const { renderGhostAIMemberInvitationEmail } = require("./lib/emailTemplates");
 const { getStudioBaseUrl } = require("./lib/memberService");
 const db = require("./lib/db");
@@ -36,7 +36,7 @@ exports.handler = async (event) => {
   const requestId = crypto.randomUUID();
 
   // Guard: OWNER or ADMIN
-  const auth = requireAdminAuth(event, requestId);
+  const auth = await requireAdminAuth(event, requestId, "member.invitation.preview");
   if (!auth.ok) {
     return jsonResponse(auth.statusCode, { error: auth.error, requestId }, origin);
   }
@@ -84,6 +84,8 @@ exports.handler = async (event) => {
       activationLink,
       invitationExpiresAt,
     });
+
+    await db.logAdminAuditEvent({ adminId: auth.admin.id, adminEmail: auth.admin.email, adminRole: auth.admin.role, action: "invite_preview", targetId: member.id });
 
     return jsonResponse(
       200,

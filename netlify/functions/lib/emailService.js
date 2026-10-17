@@ -20,13 +20,30 @@ const DEFAULT_FROM_EMAIL = "GhostAI <no-reply@smartbrain.lat>";
 
 /**
  * Returns currently configured email provider name.
- * @returns {"resend" | "sandbox"}
+ * @returns {"resend" | "smtp" | "sandbox"}
  */
 function getActiveEmailProvider() {
   if (process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim()) {
     return "resend";
   }
+  if (process.env.SMTP_HOST && process.env.SMTP_HOST.trim() && process.env.SMTP_USER && process.env.SMTP_PASS) {
+    return "smtp";
+  }
   return "sandbox";
+}
+
+/**
+ * Returns safe email configuration status without exposing credentials.
+ * @returns {{ provider: "resend" | "smtp" | "sandbox", isLive: boolean, sender: string }}
+ */
+function getEmailConfigStatus() {
+  const provider = getActiveEmailProvider();
+  return {
+    provider,
+    isLive: provider !== "sandbox" && process.env.GHOSTAI_EMAIL_MODE !== "manual",
+    deliveryMode: process.env.GHOSTAI_EMAIL_MODE === "manual" ? "manual" : "provider",
+    sender: process.env.GHOSTAI_FROM_EMAIL || DEFAULT_FROM_EMAIL,
+  };
 }
 
 /**
@@ -112,6 +129,45 @@ async function sendEmail({ to, subject, html, text, from = null }) {
     }
   }
 
+  // 3. SMTP provider (Nodemailer)
+  if (provider === "smtp") {
+    try {
+      const nodemailer = require("nodemailer");
+      const port = parseInt(process.env.SMTP_PORT || "587", 10);
+      const transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST.trim(),
+        port,
+        secure: process.env.SMTP_SECURE === "true" || port === 465,
+        auth: {
+          user: process.env.SMTP_USER.trim(),
+          pass: process.env.SMTP_PASS.trim(),
+        },
+      });
+
+      const info = await transporter.sendMail({
+        from: sender,
+        to,
+        subject,
+        html,
+        text,
+      });
+
+      return {
+        ok: true,
+        messageId: info.messageId || `smtp_${crypto.randomUUID()}`,
+        provider: "smtp",
+        simulated: false,
+      };
+    } catch (smtpErr) {
+      return {
+        ok: false,
+        error: smtpErr.message || "Error enviando correo por SMTP",
+        provider: "smtp",
+        simulated: false,
+      };
+    }
+  }
+
   return {
     ok: false,
     error: "No email provider configured.",
@@ -122,6 +178,7 @@ async function sendEmail({ to, subject, html, text, from = null }) {
 
 module.exports = {
   getActiveEmailProvider,
+  getEmailConfigStatus,
   sendEmail,
   DEFAULT_FROM_EMAIL,
 };

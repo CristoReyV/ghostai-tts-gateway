@@ -26,6 +26,7 @@ let _memoryItems = new Map(); // key: `${sessionId}:${narrationId}`
 let _memoryEvents = [];
 let _memoryMembers = new Map(); // key: memberId
 let _memoryActivationTokens = new Map(); // key: tokenHash
+let _memoryAdminKeys = new Map();
 let _memoryAdminUsers = new Map(); // key: adminId
 let _memoryAdminActivationTokens = new Map(); // key: tokenHash
 let _memoryAdminAuditLogs = [];
@@ -39,6 +40,7 @@ function _resetMemoryStore() {
   _memoryMembers.clear();
   _memoryActivationTokens.clear();
   _memoryAdminUsers.clear();
+  _memoryAdminKeys.clear();
   _memoryAdminActivationTokens.clear();
   _memoryAdminAuditLogs = [];
 }
@@ -801,7 +803,7 @@ async function revokeMember(memberId) {
 /**
  * Creates an activation token record.
  */
-async function createActivationTokenRecord({ memberId, tokenHash, tokenPublicId, encryptedKey = null, expiresAt }) {
+async function createActivationTokenRecord({ memberId, tokenHash, tokenPublicId, encryptedKey = null, encryptedInvitationToken = null, expiresAt }) {
   const now = new Date().toISOString();
   if (isMemoryMode()) {
     const id = crypto.randomUUID();
@@ -811,6 +813,7 @@ async function createActivationTokenRecord({ memberId, tokenHash, tokenPublicId,
       token_hash: tokenHash,
       token_public_id: tokenPublicId || null,
       encrypted_key: encryptedKey || null,
+      encrypted_invitation_token: encryptedInvitationToken || null,
       status: "active",
       created_at: now,
       expires_at: expiresAt,
@@ -829,6 +832,7 @@ async function createActivationTokenRecord({ memberId, tokenHash, tokenPublicId,
         token_hash: tokenHash,
         token_public_id: tokenPublicId || null,
         encrypted_key: encryptedKey || null,
+        encrypted_invitation_token: encryptedInvitationToken || null,
         status: "active",
         expires_at: expiresAt,
       },
@@ -883,6 +887,7 @@ async function consumeActivationToken(tokenId) {
         record.status = "consumed";
         record.consumed_at = now;
         record.encrypted_key = null;
+        record.encrypted_invitation_token = null;
         return { ...record };
       }
     }
@@ -896,6 +901,7 @@ async function consumeActivationToken(tokenId) {
       status: "consumed",
       consumed_at: now,
       encrypted_key: null,
+      encrypted_invitation_token: null,
     })
     .eq("id", tokenId)
     .select()
@@ -1518,7 +1524,7 @@ async function getExpiredSessions() {
  * Creates an admin user record.
  */
 async function createAdminUserRecord({ name, email, role = "admin", status = "pending", passwordHash = null, invitedBy = null }) {
-  const normalizedEmail = email.toLowerCase().trim();
+  const normalizedEmail = email ? email.toLowerCase().trim() : null;
   const now = new Date().toISOString();
   if (isMemoryMode()) {
     const id = crypto.randomUUID();
@@ -1526,7 +1532,7 @@ async function createAdminUserRecord({ name, email, role = "admin", status = "pe
       id,
       name: name.trim(),
       email: normalizedEmail,
-      role: role === "owner" ? "owner" : "admin",
+      role: ["owner", "admin", "operator"].includes(role) ? role : "admin",
       status,
       password_hash: passwordHash,
       created_at: now,
@@ -1546,7 +1552,7 @@ async function createAdminUserRecord({ name, email, role = "admin", status = "pe
       {
         name: name.trim(),
         email: normalizedEmail,
-        role: role === "owner" ? "owner" : "admin",
+        role: ["owner", "admin", "operator"].includes(role) ? role : "admin",
         status,
         password_hash: passwordHash,
         invited_at: status === "pending" ? now : null,
@@ -1588,7 +1594,7 @@ async function getAdminUserByEmail(email) {
   const normalized = email.toLowerCase().trim();
   if (isMemoryMode()) {
     for (const user of _memoryAdminUsers.values()) {
-      if (user.email.toLowerCase() === normalized) {
+      if (user.email?.toLowerCase() === normalized) {
         return { ...user };
       }
     }
@@ -1877,7 +1883,37 @@ async function updateMemberEmailStatus(memberId, { status, sentAt = null, sentBy
   return data;
 }
 
+async function createAdminKey(record) {
+  if (isMemoryMode()) { _memoryAdminKeys.set(record.public_id, { ...record }); return { ...record }; }
+  const { data, error } = await getSupabaseClient().from("ghostai_admin_keys").insert(record).select().single();
+  if (error) throw new Error("ADMIN_KEY_STORAGE_FAILED");
+  return data;
+}
+
+async function getAdminKey(publicId) {
+  if (isMemoryMode()) return _memoryAdminKeys.has(publicId) ? { ..._memoryAdminKeys.get(publicId) } : null;
+  const { data, error } = await getSupabaseClient().from("ghostai_admin_keys").select("*").eq("public_id", publicId).maybeSingle();
+  if (error) throw new Error("ADMIN_KEY_STORAGE_FAILED");
+  return data;
+}
+
+async function updateAdminKey(publicId, updates) {
+  if (isMemoryMode()) { Object.assign(_memoryAdminKeys.get(publicId), updates); return; }
+  const { error } = await getSupabaseClient().from("ghostai_admin_keys").update(updates).eq("public_id", publicId);
+  if (error) throw new Error("ADMIN_KEY_STORAGE_FAILED");
+}
+
+async function revokeAdminKeys(adminId) {
+  if (isMemoryMode()) {
+    for (const key of _memoryAdminKeys.values()) if (key.admin_user_id === adminId) key.status = "revoked";
+    return;
+  }
+  const { error } = await getSupabaseClient().from("ghostai_admin_keys").update({ status: "revoked" }).eq("admin_user_id", adminId).eq("status", "active");
+  if (error) throw new Error("ADMIN_KEY_STORAGE_FAILED");
+}
+
 module.exports = {
+  createAdminKey, getAdminKey, updateAdminKey, revokeAdminKeys,
   createClient,
   getClientById,
   listClients,

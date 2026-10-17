@@ -71,6 +71,7 @@ function sanitizeOperationalError(err) {
   let sanitized = raw
     // 1. GhostAI Access keys: gai_live_<publicId>.<secret>
     .replace(/gai_live_[A-Za-z0-9_.-]+/g, "gai_live_[REDACTED]")
+    .replace(/gai_admin_[A-Za-z0-9_.-]+/g, "gai_admin_[REDACTED]")
     // 2. ElevenLabs / OpenAI keys: sk_...
     .replace(/sk_[A-Za-z0-9_-]{20,}/g, "sk_[REDACTED]")
     // 3. JWTs (Supabase anon/service role)
@@ -89,7 +90,7 @@ function sanitizeOperationalError(err) {
   return sanitized || "Operational error occurred.";
 }
 
-const SENSITIVE_KEY_REGEX = /^(?:authorization|cookie|set-cookie|apiKey|api_key|token|secret|password|credential|serviceRoleKey|service_role_key|adminToken|admin_token|bearer)$/i;
+const SENSITIVE_KEY_REGEX = /^(?:authorization|cookie|set-cookie|apiKey|api_key|token|secret|password|credential|serviceRoleKey|service_role_key|adminToken|admin_token|adminKey|admin_key|secret_hash|bearer)$/i;
 
 /**
  * Sanitizes a string value from known secret formats (Bearer, tokens, keys, JWTs).
@@ -100,6 +101,7 @@ function sanitizeStringValue(str) {
   if (typeof str !== "string") return str;
   return str
     .replace(/gai_live_[A-Za-z0-9_.-]+/g, "gai_live_[REDACTED]")
+    .replace(/gai_admin_[A-Za-z0-9_.-]+/g, "gai_admin_[REDACTED]")
     .replace(/sk_[A-Za-z0-9_-]{10,}/g, "sk_[REDACTED]")
     .replace(/eyJh[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[JWT_REDACTED]")
     .replace(/(?:Authorization|authorization):\s*(?:Bearer|Basic)\s+[^\s,;]+/gi, "Authorization: [REDACTED]")

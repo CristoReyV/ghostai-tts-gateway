@@ -10,7 +10,8 @@
 
 const crypto = require("crypto");
 const { corsHeaders, preflightResponse } = require("./lib/cors");
-const { requireAdminAuth } = require("./lib/adminAuth");
+const { authorizeAdmin: requireAdminAuth } = require("./lib/adminAuthorization");
+const { getEmailConfigStatus } = require("./lib/emailService");
 
 exports.handler = async (event) => {
   const origin = event.headers?.origin || event.headers?.Origin;
@@ -18,7 +19,7 @@ exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") return preflightResponse(origin);
 
   const requestId = crypto.randomUUID();
-  const auth = requireAdminAuth(event, requestId);
+  const auth = await requireAdminAuth(event, requestId, "session");
 
   return {
     statusCode: 200,
@@ -31,6 +32,7 @@ exports.handler = async (event) => {
       ok: true,
       authenticated: auth.ok === true,
       admin: auth.ok ? auth.admin : null,
+      email: getEmailConfigStatus(),
     }),
   };
 };

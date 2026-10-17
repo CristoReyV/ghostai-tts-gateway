@@ -57,7 +57,9 @@ function parseCookies(event) {
 function generateAdminSessionToken(adminSecret, adminData = null) {
   const now = Date.now();
   const payload = {
-    role: adminData?.role === "admin" ? "admin" : "owner",
+    role: adminData ? adminData.role : "owner",
+    keyId: adminData?.keyId || null,
+    sessionVersion: adminData?.session_version || 0,
     adminId: adminData?.id || "system_owner",
     email: adminData?.email || "owner@ghostai.internal",
     name: adminData?.name || "GhostAI Owner",
@@ -94,7 +96,8 @@ function parseAdminSessionToken(token, adminSecret) {
 
   try {
     const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8"));
-    if (typeof payload.exp !== "number" || payload.exp < Date.now()) return null;
+    if (typeof payload.exp !== "number" || payload.exp <= Date.now()) return null;
+    if (!["owner", "admin", "operator"].includes(payload.role)) return null;
     return payload;
   } catch (_) {
     return null;
@@ -171,7 +174,9 @@ function requireAdminAuth(event, requestId = "", requiredRole = null) {
         id: payload.adminId || "system_owner",
         email: payload.email || "owner@ghostai.internal",
         name: payload.name || "GhostAI Owner",
-        role: payload.role || "owner",
+        role: payload.role,
+        keyId: payload.keyId || null,
+        sessionVersion: payload.sessionVersion || 0,
       };
 
       if (requiredRole === "owner" && admin.role !== "owner") {

@@ -2,6 +2,18 @@
   publish = "public"
   functions = "netlify/functions"
 
+[[redirects]]
+  from = "/api/admin/keys"
+  to = "/.netlify/functions/admin-keys"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/admin/members/prepare-email"
+  to = "/.netlify/functions/admin-members-prepare-email"
+  status = 200
+  force = true
+
 # ─── Scheduled Functions ──────────────────────────────────────────────────────
 [functions."cleanup-tts-generations"]
   schedule = "@hourly"

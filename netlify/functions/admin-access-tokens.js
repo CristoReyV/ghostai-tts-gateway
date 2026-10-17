@@ -11,7 +11,7 @@
 const crypto = require("crypto");
 const { corsHeaders, preflightResponse } = require("./lib/cors");
 const { makeError, ERROR_CODES } = require("./lib/errors");
-const { requireAdminAuth } = require("./lib/adminAuth");
+const { authorizeAdmin: requireAdminAuth } = require("./lib/adminAuthorization");
 const { generateClientToken } = require("./lib/tokenService");
 const db = require("./lib/db");
 
@@ -35,7 +35,7 @@ exports.handler = async (event) => {
   const requestId = crypto.randomUUID();
 
   // Admin auth guard
-  const adminAuth = requireAdminAuth(event, requestId);
+  const adminAuth = await requireAdminAuth(event, requestId, event.httpMethod === "POST" ? "member.create_key" : "admin");
   if (!adminAuth.ok) {
     return jsonResponse(adminAuth.statusCode, { error: adminAuth.error, requestId }, origin);
   }

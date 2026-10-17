@@ -267,6 +267,7 @@ async function loginAdminWithPassword(email, password) {
     email: admin.email,
     role: admin.role,
     status: admin.status,
+    session_version: admin.session_version || 0,
   };
 }
 
@@ -307,7 +308,7 @@ async function updateAdminStatus({ adminId, status, requestingAdmin }) {
     }
   }
 
-  const updated = await db.updateAdminUser(adminId, { status });
+  const updated = await db.updateAdminUser(adminId, { status, session_version: (target.session_version || 0) + 1 });
 
   await db.logAdminAuditEvent({
     adminId: requestingAdmin?.id,

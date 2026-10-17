@@ -15,7 +15,7 @@
 const crypto = require("crypto");
 const { corsHeaders, preflightResponse } = require("./lib/cors");
 const { makeError, ERROR_CODES } = require("./lib/errors");
-const { requireAdminAuth } = require("./lib/adminAuth");
+const { authorizeAdmin: requireAdminAuth } = require("./lib/adminAuthorization");
 const { inviteMember } = require("./lib/memberService");
 const { renderGhostAIMemberInvitationEmail } = require("./lib/emailTemplates");
 const { sendEmail } = require("./lib/emailService");
@@ -41,7 +41,7 @@ exports.handler = async (event) => {
   const requestId = crypto.randomUUID();
 
   // Guard: OWNER or ADMIN
-  const auth = requireAdminAuth(event, requestId);
+  const auth = await requireAdminAuth(event, requestId, "member.invitation.send");
   if (!auth.ok) {
     return jsonResponse(auth.statusCode, { error: auth.error, requestId }, origin);
   }
@@ -70,6 +70,14 @@ exports.handler = async (event) => {
     const err = makeError(400, ERROR_CODES.VALIDATION_MISSING_FIELD, "Se requiere 'memberId' o 'memberIds'.", requestId);
     return jsonResponse(400, { error: err.error, requestId }, origin);
   }
+
+  targetIds = [...new Set(targetIds.map(id => id.trim()))];
+  if (targetIds.length > 100) return jsonResponse(400, { error: { message: "Máximo 100 miembros por envío." } }, origin);
+  if (body.previewOnly === true) {
+    await db.logAdminAuditEvent({ adminId: auth.admin.id, adminEmail: auth.admin.email, adminRole: auth.admin.role, action: "invite_bulk_preview", metadata: { memberIds: targetIds, count: targetIds.length } });
+    return jsonResponse(200, { ok: true, processed: targetIds.length, zeroRealEmailsSent: true }, origin);
+  }
+  if (process.env.GHOSTAI_EMAIL_MODE === "manual") return jsonResponse(409, { error: { code: "MANUAL_EMAIL_MODE", message: "Prepara el correo y envíalo desde tu cuenta." } }, origin);
 
   const succeeded = [];
   const failed = [];

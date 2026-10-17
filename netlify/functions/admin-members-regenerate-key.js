@@ -63,6 +63,7 @@ exports.handler = async (event) => {
 
   try {
     const result = await regenerateMemberKey(memberId.trim());
+    await require("./lib/db").logAdminAuditEvent({ adminId: adminAuth.admin.id, adminEmail: adminAuth.admin.email, adminRole: adminAuth.admin.role, action: "member_access_replaced", targetId: memberId.trim(), metadata: { keyId: result.member.key_id, membershipDatesPreserved: true } });
     return jsonResponse(
       200,
       {

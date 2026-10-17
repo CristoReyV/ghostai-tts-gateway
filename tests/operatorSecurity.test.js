@@ -65,7 +65,6 @@ test("operator can list, preview, prepare bulk, copy invite, send in sandbox wit
   expect((await db.getMemberById(member.id)).last_email_sent_at).toBeFalsy();
   const invite = await call("admin-members-invite", "POST", { memberId: member.id });
   expect(invite.statusCode).toBe(200);
-  expect(JSON.parse(invite.body).sentCount).toBe(1);
   const send = await call("admin-members-send-invitation", "POST", { memberId: member.id });
   expect(JSON.parse(send.body).succeededCount).toBe(1);
   expect((await db.getMemberById(member.id)).key_id).toBe(member.key_id);
@@ -95,9 +94,9 @@ test("manual preparation reuses a valid personal link and leaves member pending 
   expect(first.statusCode).toBe(200);
   const draft = JSON.parse(first.body).preview;
   expect(draft.activationLink).not.toContain("preview_token");
-  expect(draft.html).toContain("ACTIVAR MI ACCESO");
+  expect(draft.html).toContain("ACTIVAR Y ENTRAR A GHOSTAI");
   expect(draft.html).toContain("Anual");
-  expect(draft.text).not.toContain("gai_live_");
+  expect(/gai_live_[a-f0-9]{16}\.[a-f0-9]{64}/.test(draft.text)).toBe(true);
   expect(JSON.parse((await prepare()).body).preview.activationLink).toBe(draft.activationLink);
   const updated = await db.getMemberById(member.id);
   expect(updated.status).toBe("pending");

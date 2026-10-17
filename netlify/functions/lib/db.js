@@ -877,16 +877,15 @@ async function getActivationTokenByHash(tokenHash) {
 }
 
 /**
- * Consumes an activation token (marks consumed, wipes encrypted_key).
+ * Consumes an activation token atomically. Encrypted key remains for server-side delivery only.
  */
 async function consumeActivationToken(tokenId) {
   const now = new Date().toISOString();
   if (isMemoryMode()) {
     for (const record of _memoryActivationTokens.values()) {
-      if (record.id === tokenId) {
+      if (record.id === tokenId && record.status === "active" && !record.consumed_at) {
         record.status = "consumed";
         record.consumed_at = now;
-        record.encrypted_key = null;
         record.encrypted_invitation_token = null;
         return { ...record };
       }
@@ -900,12 +899,13 @@ async function consumeActivationToken(tokenId) {
     .update({
       status: "consumed",
       consumed_at: now,
-      encrypted_key: null,
       encrypted_invitation_token: null,
     })
     .eq("id", tokenId)
+    .eq("status", "active")
+    .is("consumed_at", null)
     .select()
-    .single();
+    .maybeSingle();
 
   if (error) throw new Error(error.message);
   return record || null;

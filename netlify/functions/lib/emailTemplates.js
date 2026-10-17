@@ -79,33 +79,45 @@ function renderGhostAIMemberInvitationEmail({
   plan,
   activationLink,
   invitationExpiresAt,
+  accessKey = null,
+  deliveryType = "INVITATION",
 }) {
   const safeName = escapeHtml(name || "Estimado miembro");
   const planLabel = formatPlanLabel(plan);
   const expiryFormatted = escapeHtml(formatExpiryDate(invitationExpiresAt));
   const safeLink = escapeHtml(activationLink);
 
-  const subject = "Tu acceso a GhostAI ya está listo";
-  const preheader = "Activa tu acceso a GhostAI TTS Studio.";
+  const replacement = deliveryType === "ACCESS_REPLACEMENT";
+  const visibleKey = accessKey || "gai_live_••••••••.••••••••";
+  const safeKey = escapeHtml(visibleKey);
+  const ctaLabel = replacement ? "ABRIR GHOSTAI" : "ACTIVAR Y ENTRAR A GHOSTAI";
+  const subject = replacement ? "Tu acceso a GhostAI fue actualizado" : "Tu acceso a GhostAI ya está listo";
+  const preheader = replacement ? "Guarda tu nueva llave y vuelve a GhostAI." : "Activa tu acceso a GhostAI TTS Studio.";
 
   // Plain Text Version (Section 8)
   const text = `Hola, ${name || "miembro"}.
 
-Tu acceso a GhostAI ya está listo.
-
-Ya puedes activar tu acceso a GhostAI TTS Studio.
+${replacement ? "Tu acceso a GhostAI fue actualizado. Tu llave anterior dejó de funcionar. Tu plan y vencimiento se mantienen." : "Tu acceso a GhostAI ya está listo."}
 
 Plan: ${planLabel}
 
-Activa tu acceso:
+IMPORTANTE — GUARDA TU GHOSTAI KEY
+${replacement ? "Guarda tu nueva GhostAI Key:" : "Tu llave personal:"}
+${visibleKey}
+
+Guárdala en un lugar seguro. La necesitarás para volver a entrar a GhostAI.
+Selecciona y copia esta llave antes de continuar.
+
+${ctaLabel}:
 ${activationLink}
 
-Este enlace es personal y expira el ${expiryFormatted}.
+${replacement ? "Este reemplazo no inicia un nuevo periodo ni modifica tu vencimiento." : "Este enlace es personal y expira el " + formatExpiryDate(invitationExpiresAt) + "."}
 
-Si no puedes abrir el botón, copia y pega la URL en tu navegador.
+¿Ya utilizaste el enlace o cerraste la pestaña? No pasa nada.
+Vuelve a GhostAI e introduce la llave que aparece en este correo.
+Si necesitas ayuda con tu acceso, contacta a quien te envió esta invitación.
 
-— GhostAI
-Este correo fue enviado porque se creó un acceso asociado a esta dirección.`;
+— GhostAI`;
 
   // HTML Version (Dark Premium, Email-Safe Tables & Inline Styles)
   const html = `<!DOCTYPE html>
@@ -175,7 +187,7 @@ Este correo fue enviado porque se creó un acceso asociado a esta dirección.`;
 
               <!-- Headline -->
               <h1 style="margin: 0 0 12px 0; font-size: 24px; font-weight: 700; color: #ffffff; line-height: 1.3;">
-                Tu acceso ya está listo
+                ${replacement ? "Tu acceso a GhostAI fue actualizado." : "Tu acceso ya está listo"}
               </h1>
 
               <!-- Greeting & Subtext -->
@@ -183,7 +195,7 @@ Este correo fue enviado porque se creó un acceso asociado a esta dirección.`;
                 Hola, <strong style="color: #ffffff;">${safeName}</strong>.
               </p>
               <p style="margin: 0 0 28px 0; font-size: 15px; color: #a1a1aa; line-height: 1.6;">
-                Ya puedes activar tu cuenta personal en <strong style="color: #f4f4f5;">GhostAI TTS Studio</strong> para comenzar a generar voces y gestionar tus proyectos.
+                ${replacement ? "Tu llave anterior dejó de funcionar. Tu plan y vencimiento se mantienen." : "Ya puedes activar tu cuenta personal en GhostAI TTS Studio."}
               </p>
 
               <!-- Plan Details Box -->
@@ -200,7 +212,7 @@ Este correo fue enviado porque se creó un acceso asociado a esta dirección.`;
                         </td>
                         <td align="right">
                           <span style="display: inline-block; background-color: #23272c; color: #10b981; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 4px; border: 1px solid #2f343b;">
-                            ACTIVO AL INGRESAR
+                            ${replacement ? "VIGENCIA CONSERVADA" : "ACTIVO AL INGRESAR"}
                           </span>
                         </td>
                       </tr>
@@ -209,6 +221,13 @@ Este correo fue enviado porque se creó un acceso asociado a esta dirección.`;
                 </tr>
               </table>
 
+              <table role="presentation" width="100%" style="margin-bottom:28px;border:1px solid #10b981;border-radius:8px;background:#10251f;"><tr><td style="padding:20px;">
+                <p style="color:#6ee7b7;font-weight:700;font-size:14px;">IMPORTANTE — GUARDA TU GHOSTAI KEY</p>
+                <p style="color:#d4d4d8;">${replacement ? "Guarda tu nueva GhostAI Key:" : "Tu llave personal:"}</p>
+                <div style="font-family:monospace;font-size:14px;color:#ffffff;background:#080c14;border:1px solid #2f343b;border-radius:6px;padding:14px;word-break:break-all;user-select:text;">${safeKey}</div>
+                <p style="color:#d4d4d8;font-size:13px;line-height:1.6;">Guárdala en un lugar seguro. La necesitarás para volver a entrar a GhostAI.</p>
+                <p style="color:#a1a1aa;font-size:13px;">Selecciona y copia esta llave antes de continuar.</p>
+              </td></tr></table>
               <!-- Main Call To Action Button -->
               <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin-bottom: 28px;">
                 <tr>
@@ -216,12 +235,12 @@ Este correo fue enviado porque se creó un acceso asociado a esta dirección.`;
                     <!--[if mso]>
                     <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${safeLink}" style="height:48px;v-text-anchor:middle;width:460px;" arcsize="10%" fillcolor="#10b981" stroke="f">
                       <w:anchorlock/>
-                      <center style="color:#ffffff;font-family:sans-serif;font-size:14px;font-weight:bold;letter-spacing:1px;">ACTIVAR MI ACCESO</center>
+                      <center style="color:#ffffff;font-family:sans-serif;font-size:14px;font-weight:bold;letter-spacing:1px;">${ctaLabel}</center>
                     </v:roundrect>
                     <![endif]-->
                     <!--[if !mso]><!-->
                     <a href="${safeLink}" target="_blank" style="display: block; width: 100%; box-sizing: border-box; background-color: #10b981; color: #0a0b0d; font-size: 14px; font-weight: 700; letter-spacing: 1px; text-decoration: none; text-align: center; padding: 15px 24px; border-radius: 6px; text-transform: uppercase;">
-                      ACTIVAR MI ACCESO &rarr;
+                      ${ctaLabel} &rarr;
                     </a>
                     <!--<![endif]-->
                   </td>
@@ -230,7 +249,7 @@ Este correo fue enviado porque se creó un acceso asociado a esta dirección.`;
 
               <!-- Security Notice -->
               <p style="margin: 0 0 16px 0; font-size: 13px; color: #71717a; line-height: 1.5; text-align: center;">
-                Este enlace es personal y de uso único. Expira el <strong style="color: #a1a1aa;">${expiryFormatted}</strong>.
+                ${replacement ? "Este reemplazo no inicia un nuevo periodo ni modifica tu vencimiento." : `Este enlace es personal y de uso único. Expira el <strong style="color: #a1a1aa;">${expiryFormatted}</strong>.`}
               </p>
 
               <!-- Fallback URL display -->
@@ -257,7 +276,7 @@ Este correo fue enviado porque se creó un acceso asociado a esta dirección.`;
                 GHOSTAI PLATFORM
               </p>
               <p style="margin: 0; font-size: 11px; color: #52525b; line-height: 1.5;">
-                Este correo fue enviado porque se creó un acceso oficial asociado a esta dirección.<br>
+                ¿Ya utilizaste el enlace o cerraste la pestaña? No pasa nada.<br>Vuelve a GhostAI e introduce la llave que aparece en este correo.<br>Para ayuda con tu acceso, contacta a quien te envió esta invitación.<br><br>
                 Si no esperabas este correo, puedes ignorarlo de manera segura.
               </p>
             </td>

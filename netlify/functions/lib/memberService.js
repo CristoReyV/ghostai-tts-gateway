@@ -393,8 +393,13 @@ async function activateMemberAccess(tokenString) {
     throw err;
   }
 
-  // 1. Consume the activation token immediately (single-use)
-  await db.consumeActivationToken(record.id);
+  if (member.activated_at || member.status === "active") {
+    throw Object.assign(new Error("Este acceso ya fue activado. Entra usando tu GhostAI Key."), { code: "TOKEN_ALREADY_USED", statusCode: 409 });
+  }
+  const accessKey = record.encrypted_key ? safeDecryptKey(record.encrypted_key) : null;
+  if (!accessKey) throw Object.assign(new Error("No se pudo recuperar tu key. Contacta al soporte de GhostAI."), { code: "ACTIVATION_KEY_UNAVAILABLE", statusCode: 409 });
+  // The guarded consume prevents concurrent activations from restarting the period.
+  if (!await db.consumeActivationToken(record.id)) throw Object.assign(new Error("Este enlace ya fue utilizado."), { code: "TOKEN_ALREADY_USED", statusCode: 409 });
 
   // 2. Calculate activation and expiration timestamps
   // Vigencia comienza en activatedAt!
@@ -418,7 +423,7 @@ async function activateMemberAccess(tokenString) {
   }
 
   // 5. Decrypt key if escrowed
-  const accessKey = record.encrypted_key ? safeDecryptKey(record.encrypted_key) : null;
+  // Escrow remains encrypted for future server-side email delivery.
 
   // 6. Log audit event
   await db.logOperationEvent({
@@ -589,32 +594,30 @@ async function regenerateMemberKey(memberId) {
     throw err;
   }
 
-  // 1. Revoke old key if present
-  if (member.key_id) {
-    await db.revokeToken(member.key_id);
-  }
-
-  // 2. Generate new key
+  // Generate with the official generator; preserve the existing membership period.
   const tokenResult = await generateClientToken({
     clientId: member.client_id,
     label: `GhostAI Member: ${member.name} (Regenerated)`,
     expiresAt: member.expires_at || null,
   });
 
-  // 3. Update member's keyId
+  const activation = await issueActivationToken(memberId, tokenResult.token);
+  // Associate the replacement before revoking the previous key.
   await db.updateMember(memberId, {
     key_id: tokenResult.tokenId,
+    last_email_status: "not_sent",
+    last_email_sent_at: null,
+    last_email_sent_by: null,
+    last_email_error: null,
   });
-
-  // 4. Issue fresh activation token with newly encrypted key
-  const activation = await issueActivationToken(memberId, tokenResult.token);
+  if (member.key_id) await db.revokeToken(member.key_id);
 
   const emailPayload = buildEmailPayload({
     memberId: member.id,
     name: member.name,
     email: member.email,
     plan: member.access_plan,
-    activationLink: activation.activationLink,
+    activationLink: member.status === "active" ? getStudioBaseUrl() : activation.activationLink,
   });
 
   await db.logOperationEvent({
@@ -630,8 +633,8 @@ async function regenerateMemberKey(memberId) {
   const updatedMember = await db.getMemberById(memberId);
   return {
     member: updatedMember,
-    activationToken: activation.activationToken,
-    activationLink: activation.activationLink,
+    activationToken: member.status === "active" ? null : activation.activationToken,
+    activationLink: member.status === "active" ? getStudioBaseUrl() : activation.activationLink,
     emailPayload,
   };
 }

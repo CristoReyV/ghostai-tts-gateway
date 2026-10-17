@@ -248,18 +248,18 @@ describe("Multi-Admin Users & Email Experience (Phase 02)", () => {
       expect(rendered.html).toContain("Tu acceso ya está listo");
       expect(rendered.html).toContain("Carlos Santana");
       expect(rendered.html).toContain("Anual");
-      expect(rendered.html).toContain("ACTIVAR MI ACCESO");
+      expect(rendered.html).toContain("ACTIVAR Y ENTRAR A GHOSTAI");
       expect(rendered.html).toContain(emailParams.activationLink);
       expect(rendered.html).toContain("Este enlace es personal");
 
       // Strictly NO permanent GhostAI key secret in the email
-      expect(rendered.html).not.toContain("gai_live_");
-      expect(rendered.text).not.toContain("gai_live_");
+      expect(rendered.html).not.toMatch(/gai_live_[a-f0-9]{16}\.[a-f0-9]{64}/);
+      expect(rendered.text).not.toMatch(/gai_live_[a-f0-9]{16}\.[a-f0-9]{64}/);
 
       // Plain text fallback (Section 8)
       expect(rendered.text).toContain("Hola, Carlos Santana.");
       expect(rendered.text).toContain("Plan: Anual");
-      expect(rendered.text).toContain("Activa tu acceso:");
+      expect(rendered.text).toContain("ACTIVAR Y ENTRAR A GHOSTAI:");
       expect(rendered.text).toContain(emailParams.activationLink);
       expect(rendered.text).toContain("— GhostAI");
     });
@@ -270,20 +270,8 @@ describe("Multi-Admin Users & Email Experience (Phase 02)", () => {
     let testMember;
 
     beforeEach(async () => {
-      const client = await db.createClient({ name: "Client A", email: "clienta@test.com" });
-      testMember = await db.createMemberRecord({
-        clientId: client.id,
-        name: "Juan Perez",
-        email: "juan@example.test",
-        accessPlan: "monthly",
-      });
-      await db.createActivationTokenRecord({
-        memberId: testMember.id,
-        tokenHash: "hash123",
-        tokenPublicId: "pub123",
-        encryptedKey: "encKey123",
-        expiresAt: new Date(Date.now() + 86400000 * 7).toISOString(),
-      });
+      const { createMemberWithAccess } = require("../netlify/functions/lib/memberService");
+      testMember = (await createMemberWithAccess({ name: "Juan Perez", email: "juan@example.test", accessPlan: "monthly" })).member;
     });
 
     test("POST /api/admin/members/email-preview returns rendered preview without sending", async () => {
@@ -298,7 +286,7 @@ describe("Multi-Admin Users & Email Experience (Phase 02)", () => {
       expect(data.ok).toBe(true);
       expect(data.preview.to).toBe("juan@example.test");
       expect(data.preview.subject).toBe("Tu acceso a GhostAI ya está listo");
-      expect(data.preview.html).toContain("ACTIVAR MI ACCESO");
+      expect(data.preview.html).toContain("ACTIVAR Y ENTRAR A GHOSTAI");
       expect(data.preview.text).toContain("Plan: Mensual");
     });
 
@@ -329,13 +317,7 @@ describe("Multi-Admin Users & Email Experience (Phase 02)", () => {
     });
 
     test("bulk send processes individually and isolates failures (batch safety)", async () => {
-      const client = await db.createClient({ name: "Client B" });
-      const failMember = await db.createMemberRecord({
-        clientId: client.id,
-        name: "Fail Member",
-        email: "error-fail@example.test",
-        accessPlan: "monthly",
-      });
+      const failMember = (await require("../netlify/functions/lib/memberService").createMemberWithAccess({ name: "Fail Member", email: "error-fail@example.test", accessPlan: "monthly" })).member;
 
       const res = await sendHandler({
         httpMethod: "POST",

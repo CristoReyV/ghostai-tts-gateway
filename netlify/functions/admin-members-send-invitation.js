@@ -16,7 +16,8 @@ const crypto = require("crypto");
 const { corsHeaders, preflightResponse } = require("./lib/cors");
 const { makeError, ERROR_CODES } = require("./lib/errors");
 const { authorizeAdmin: requireAdminAuth } = require("./lib/adminAuthorization");
-const { inviteMember } = require("./lib/memberService");
+const { renderMemberDeliveryForSend } = require("./lib/memberDelivery");
+const { sanitizeOperationalError } = require("./lib/errorCatalog");
 const { renderGhostAIMemberInvitationEmail } = require("./lib/emailTemplates");
 const { sendEmail, getEmailConfigStatus } = require("./lib/emailService");
 const db = require("./lib/db");
@@ -77,7 +78,7 @@ exports.handler = async (event) => {
     await db.logAdminAuditEvent({ adminId: auth.admin.id, adminEmail: auth.admin.email, adminRole: auth.admin.role, action: "invite_bulk_preview", metadata: { memberIds: targetIds, count: targetIds.length } });
     return jsonResponse(200, { ok: true, processed: targetIds.length, zeroRealEmailsSent: true }, origin);
   }
-  if (getEmailConfigStatus().deliveryMode === "manual") return jsonResponse(409, { error: { code: "MANUAL_EMAIL_MODE", message: "Prepara el correo y envíalo desde tu cuenta." } }, origin);
+  if (!getEmailConfigStatus().isLive && !(process.env.NODE_ENV === "test" && process.env.GHOSTAI_EMAIL_MODE === "provider")) return jsonResponse(409, { error: { code: "MANUAL_EMAIL_MODE", message: "La entrega de la key requiere un proveedor de correo configurado por OWNER." } }, origin);
 
   const succeeded = [];
   const failed = [];
@@ -93,17 +94,7 @@ exports.handler = async (event) => {
         continue;
       }
 
-      // Generate or refresh activation token
-      const invitation = await inviteMember(memberId);
-
-      // Render the HTML & text email
-      const rendered = renderGhostAIMemberInvitationEmail({
-        name: member.name,
-        email: member.email,
-        plan: member.access_plan,
-        activationLink: invitation.activationLink,
-        invitationExpiresAt: new Date(Date.now() + 7 * 86400000).toISOString(),
-      });
+      const rendered = await renderMemberDeliveryForSend(memberId);
 
       // Dispatch email
       const sendResult = await sendEmail({
@@ -151,19 +142,19 @@ exports.handler = async (event) => {
           status: "failed",
           sentAt: now,
           sentBy: auth.admin.id !== "system_owner" ? auth.admin.id : null,
-          error: sendResult.error,
+          error: sanitizeOperationalError(sendResult.error),
         });
 
         failed.push({
           memberId: member.id,
           email: member.email,
-          error: sendResult.error || "Error enviando correo.",
+          error: "No se pudo enviar el correo. Contacta al OWNER.",
         });
       }
     } catch (memberErr) {
       failed.push({
         memberId,
-        error: memberErr.message || "Error procesando invitación.",
+        error: "No se pudo preparar la entrega segura. Contacta al OWNER.",
       });
     }
   }

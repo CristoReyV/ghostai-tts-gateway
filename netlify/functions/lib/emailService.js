@@ -38,10 +38,11 @@ function getActiveEmailProvider() {
  */
 function getEmailConfigStatus() {
   const provider = getActiveEmailProvider();
+  const deliveryMode = process.env.GHOSTAI_EMAIL_MODE === "provider" ? "provider" : "manual";
   return {
     provider,
-    isLive: provider !== "sandbox" && process.env.GHOSTAI_EMAIL_MODE !== "manual",
-    deliveryMode: process.env.GHOSTAI_EMAIL_MODE === "manual" ? "manual" : "provider",
+    isLive: provider !== "sandbox" && deliveryMode === "provider",
+    deliveryMode,
     sender: process.env.GHOSTAI_FROM_EMAIL || DEFAULT_FROM_EMAIL,
   };
 }

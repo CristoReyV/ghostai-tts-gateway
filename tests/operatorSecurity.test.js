@@ -14,7 +14,7 @@ beforeEach(async () => {
   process.env.GHOSTAI_TOKEN_HASH_PEPPER = "unit-only-pepper";
   delete process.env.RESEND_API_KEY;
   delete process.env.SMTP_HOST;
-  delete process.env.GHOSTAI_EMAIL_MODE;
+  process.env.GHOSTAI_EMAIL_MODE = "provider";
   db._setMemoryStoreEnabled(true); db._resetMemoryStore();
   partner = await manageAdminKey({ action: "create", name: "Test operator", requestingAdmin: owner });
   const res = await login({ httpMethod: "POST", body: JSON.stringify({ adminKey: partner.key }) });
@@ -103,7 +103,7 @@ test("manual preparation reuses a valid personal link and leaves member pending 
   expect(updated.status).toBe("pending");
   expect(updated.last_email_sent_at).toBeFalsy();
   expect(updated.key_id).toBe(member.key_id);
-  process.env.GHOSTAI_EMAIL_MODE = "manual";
+  delete process.env.GHOSTAI_EMAIL_MODE;
   expect((await call("admin-members-send-invitation", "POST", { memberId: member.id })).statusCode).toBe(409);
   expect((await db.getMemberById(member.id)).last_email_sent_at).toBeFalsy();
   delete process.env.GHOSTAI_EMAIL_MODE;

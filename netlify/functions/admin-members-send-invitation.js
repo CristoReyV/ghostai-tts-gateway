@@ -18,7 +18,7 @@ const { makeError, ERROR_CODES } = require("./lib/errors");
 const { authorizeAdmin: requireAdminAuth } = require("./lib/adminAuthorization");
 const { inviteMember } = require("./lib/memberService");
 const { renderGhostAIMemberInvitationEmail } = require("./lib/emailTemplates");
-const { sendEmail } = require("./lib/emailService");
+const { sendEmail, getEmailConfigStatus } = require("./lib/emailService");
 const db = require("./lib/db");
 
 function jsonResponse(statusCode, body, origin) {
@@ -77,7 +77,7 @@ exports.handler = async (event) => {
     await db.logAdminAuditEvent({ adminId: auth.admin.id, adminEmail: auth.admin.email, adminRole: auth.admin.role, action: "invite_bulk_preview", metadata: { memberIds: targetIds, count: targetIds.length } });
     return jsonResponse(200, { ok: true, processed: targetIds.length, zeroRealEmailsSent: true }, origin);
   }
-  if (process.env.GHOSTAI_EMAIL_MODE === "manual") return jsonResponse(409, { error: { code: "MANUAL_EMAIL_MODE", message: "Prepara el correo y envíalo desde tu cuenta." } }, origin);
+  if (getEmailConfigStatus().deliveryMode === "manual") return jsonResponse(409, { error: { code: "MANUAL_EMAIL_MODE", message: "Prepara el correo y envíalo desde tu cuenta." } }, origin);
 
   const succeeded = [];
   const failed = [];

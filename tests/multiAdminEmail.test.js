@@ -48,6 +48,7 @@ describe("Multi-Admin Users & Email Experience (Phase 02)", () => {
     process.env.GHOSTAI_ADMIN_AUTH_TOKEN = TEST_SECRET;
     process.env.GHOSTAI_TOKEN_HASH_PEPPER = TEST_PEPPER;
     process.env.GHOSTAI_EMAIL_SANDBOX = "true";
+    process.env.GHOSTAI_EMAIL_MODE = "provider";
   });
 
   afterEach(() => {
@@ -56,6 +57,7 @@ describe("Multi-Admin Users & Email Experience (Phase 02)", () => {
     delete process.env.GHOSTAI_ADMIN_AUTH_TOKEN;
     delete process.env.GHOSTAI_TOKEN_HASH_PEPPER;
     delete process.env.GHOSTAI_EMAIL_SANDBOX;
+    delete process.env.GHOSTAI_EMAIL_MODE;
   });
 
   // ── 1. Password Service ─────────────────────────────────────────────

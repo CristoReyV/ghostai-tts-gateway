@@ -22,11 +22,11 @@ const ANNUAL_DURATION_DAYS = 365;
  * @returns {string}
  */
 function getStudioBaseUrl() {
-  const custom = process.env.GHOSTAI_STUDIO_URL || process.env.URL;
+  const custom = process.env.GHOSTAI_STUDIO_URL;
   if (custom && typeof custom === "string" && custom.trim()) {
     return custom.trim().replace(/\/+$/, "");
   }
-  return "https://ghostai-tts-studio.netlify.app";
+  return "https://ghostai-tts-studio.smartbrain.lat";
 }
 
 /**

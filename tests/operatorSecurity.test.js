@@ -108,3 +108,14 @@ test("manual preparation reuses a valid personal link and leaves member pending 
   expect((await db.getMemberById(member.id)).last_email_sent_at).toBeFalsy();
   delete process.env.GHOSTAI_EMAIL_MODE;
 });
+
+test("activation links target Studio even when Netlify URL points to Gateway", () => {
+  const previousUrl = process.env.URL;
+  const previousStudio = process.env.GHOSTAI_STUDIO_URL;
+  process.env.URL = "https://tts-test.smartbrain.lat";
+  delete process.env.GHOSTAI_STUDIO_URL;
+  const { buildActivationLink } = require("../netlify/functions/lib/memberService");
+  expect(new URL(buildActivationLink("unit-token")).origin).toBe("https://ghostai-tts-studio.smartbrain.lat");
+  if (previousUrl === undefined) delete process.env.URL; else process.env.URL = previousUrl;
+  if (previousStudio === undefined) delete process.env.GHOSTAI_STUDIO_URL; else process.env.GHOSTAI_STUDIO_URL = previousStudio;
+});

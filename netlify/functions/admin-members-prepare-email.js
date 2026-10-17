@@ -15,7 +15,7 @@ exports.handler = async event => {
  if(typeof body.memberId!=="string" || !body.memberId.trim()) return reply(400,{error:{message:"Miembro requerido."}});
  try {
   const preview=await prepareMemberDelivery(body.memberId.trim());
-  await db.logAdminAuditEvent({adminId:auth.admin.id,adminEmail:auth.admin.email,adminRole:auth.admin.role,action:"invite_preview",targetId:body.memberId.trim(),metadata:{deliveryType:preview.deliveryType,keyRedacted:true}});
+  await db.logAdminAuditEvent({adminId:auth.admin.id,adminEmail:auth.admin.email,adminRole:auth.admin.role,action:"invite_preview",targetId:body.memberId.trim(),metadata:{deliveryType:preview.deliveryType,keyRedacted:preview.keyRedacted}});
   return reply(200,{ok:true,zeroRealEmailsSent:true,preview});
  } catch(err) {return reply(err.statusCode||500,{error:{code:err.code||"DELIVERY_UNAVAILABLE",message:err.statusCode?err.message:"No se pudo preparar la entrega segura."}});}
 };

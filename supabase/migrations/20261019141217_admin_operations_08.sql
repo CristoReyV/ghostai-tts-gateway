@@ -1,10 +1,14 @@
 -- Additive tracking only. Existing member/key/period data is not backfilled.
 ALTER TABLE public.ghostai_members
   ADD COLUMN IF NOT EXISTS last_email_type text CHECK (last_email_type IN ('NEW_ACCESS','ACCESS_REPLACEMENT','RESEND','RENEWAL')),
-  ADD COLUMN IF NOT EXISTS last_email_key_id uuid REFERENCES public.ghostai_access_tokens(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS last_email_key_id uuid,
   ADD COLUMN IF NOT EXISTS last_email_sent_by_name text,
   ADD COLUMN IF NOT EXISTS last_email_sent_by_role text CHECK (last_email_sent_by_role IN ('owner','operator','admin')),
   ADD COLUMN IF NOT EXISTS last_renewed_at timestamptz;
+
+-- This is a delivery snapshot, not another membership/key relationship.
+-- Keep existing PostgREST member-key embeds unambiguous on already-applied installs.
+ALTER TABLE public.ghostai_members DROP CONSTRAINT IF EXISTS ghostai_members_last_email_key_id_fkey;
 
 -- INVOKER: service_role only, with existing RLS/permissions left intact.
 CREATE OR REPLACE FUNCTION public.ghostai_mark_member_email(

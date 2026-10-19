@@ -486,6 +486,10 @@ async function updateTokenLastUsed(tokenId) {
  */
 function enrichMemberStatus(m) {
   if (!m) return null;
+  if (isMemoryMode() && m.key_id) {
+    const key = Array.from(_memoryTokens.values()).find(t => t.id === m.key_id);
+    if (key) m.key = { id: key.id, token_public_id: key.token_public_id, label: key.label, created_at: key.created_at, status: key.status, expires_at: key.expires_at, last_used_at: key.last_used_at };
+  }
   let status = m.status;
   if (status === "active" && m.expires_at) {
     if (new Date(m.expires_at).getTime() <= Date.now()) {
@@ -496,6 +500,9 @@ function enrichMemberStatus(m) {
     ...m,
     status,
     computedStatus: status,
+    tokenPublicId: m.tokenPublicId || m.key?.token_public_id || null,
+    lastUsedAt: m.lastUsedAt || m.key?.last_used_at || null,
+    operational: require("./memberOperations").getMemberOperationalState({ ...m, status }),
   };
 }
 
@@ -579,7 +586,7 @@ async function getMemberById(memberId) {
     .select(`
       *,
       client:ghostai_clients(id, name, email, status),
-      key:ghostai_access_tokens(id, token_public_id, status, expires_at, last_used_at)
+      key:ghostai_access_tokens(id, token_public_id, label, created_at, status, expires_at, last_used_at)
     `)
     .eq("id", memberId)
     .maybeSingle();
@@ -610,7 +617,7 @@ async function getMemberByEmail(email) {
     .select(`
       *,
       client:ghostai_clients(id, name, email, status),
-      key:ghostai_access_tokens(id, token_public_id, status, expires_at, last_used_at)
+      key:ghostai_access_tokens(id, token_public_id, label, created_at, status, expires_at, last_used_at)
     `)
     .ilike("email", target)
     .maybeSingle();
@@ -676,7 +683,7 @@ async function listMembers() {
     .select(`
       *,
       client:ghostai_clients(id, name, email, status),
-      key:ghostai_access_tokens(id, token_public_id, status, expires_at, last_used_at)
+      key:ghostai_access_tokens(id, token_public_id, label, created_at, status, expires_at, last_used_at)
     `)
     .order("created_at", { ascending: false });
 
@@ -747,6 +754,7 @@ async function renewMember(memberId, extension = null) {
     status: "active",
     expires_at: newExpiresAt,
     revoked_at: null,
+    last_renewed_at: new Date(now).toISOString(),
   });
 
   // Update associated access token in ghostai_access_tokens
@@ -938,6 +946,7 @@ async function revokeActivationTokensForMember(memberId) {
 async function getLatestActivationTokenForMember(memberId) {
   if (isMemoryMode()) {
     const list = Array.from(_memoryActivationTokens.values())
+      .reverse() // Latest insertion wins when test timestamps share a millisecond.
       .filter((r) => r.member_id === memberId && r.encrypted_key)
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     return list[0] ? { ...list[0] } : null;
@@ -1883,6 +1892,39 @@ async function updateMemberEmailStatus(memberId, { status, sentAt = null, sentBy
   return data;
 }
 
+// Compare-and-set plus audit is atomic: a stale preview cannot mark a replacement key.
+async function markMemberEmail({ memberId, keyId, sent, expectedSentAt, emailType, admin }) {
+  let now = new Date().toISOString();
+  const actorId = ["system_owner", "00000000-0000-0000-0000-000000000000"].includes(admin.id) ? null : admin.id;
+  if (!isMemoryMode()) {
+    const { data, error } = await getSupabaseClient().rpc("ghostai_mark_member_email", {
+      p_member_id: memberId, p_key_id: keyId, p_sent: sent, p_expected_sent_at: expectedSentAt,
+      p_admin_id: actorId, p_admin_name: admin.name, p_admin_role: admin.role, p_admin_email: admin.email,
+      p_email_type: emailType, p_now: now,
+    });
+    if (error) throw new Error("EMAIL_TRACKING_FAILED");
+    return data;
+  }
+  const member = _memoryMembers.get(memberId);
+  if (!member || member.key_id !== keyId) return { conflict: "KEY_CHANGED" };
+  const currentTime = member.last_email_sent_at ? Date.parse(member.last_email_sent_at) : null;
+  const expectedTime = expectedSentAt ? Date.parse(expectedSentAt) : null;
+  if (currentTime !== expectedTime) return sent && member.last_email_status === "sent" ? { changed: false } : { conflict: "EMAIL_CHANGED" };
+  if (!sent && (!member.last_email_status || member.last_email_status === "not_sent")) return { changed: false };
+  if (sent && currentTime !== null && Date.parse(now) <= currentTime) now = new Date(currentTime + 1).toISOString();
+  const previousSentAt = member.last_email_sent_at || null;
+  Object.assign(member, {
+    last_email_status: sent ? "sent" : "not_sent", last_email_sent_at: sent ? now : null,
+    last_email_sent_by: sent ? actorId : null, last_email_sent_by_name: sent ? admin.name : null,
+    last_email_sent_by_role: sent ? admin.role : null, last_email_type: sent ? emailType : null,
+    last_email_key_id: sent ? keyId : null, last_email_error: null,
+  });
+  await logAdminAuditEvent({ adminId: actorId, adminEmail: admin.email, adminRole: admin.role,
+    action: sent ? "email_marked_sent" : "email_marked_unsent", targetId: memberId,
+    metadata: { memberId, adminId: actorId, emailType, timestamp: now, previousSentAt, manual: true } });
+  return { changed: true };
+}
+
 async function createAdminKey(record) {
   if (isMemoryMode()) { _memoryAdminKeys.set(record.public_id, { ...record }); return { ...record }; }
   const { data, error } = await getSupabaseClient().from("ghostai_admin_keys").insert(record).select().single();
@@ -1913,6 +1955,7 @@ async function revokeAdminKeys(adminId) {
 }
 
 module.exports = {
+  markMemberEmail,
   createAdminKey, getAdminKey, updateAdminKey, revokeAdminKeys,
   createClient,
   getClientById,

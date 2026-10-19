@@ -609,6 +609,10 @@ async function regenerateMemberKey(memberId) {
     last_email_sent_at: null,
     last_email_sent_by: null,
     last_email_error: null,
+    last_email_type: null,
+    last_email_key_id: null,
+    last_email_sent_by_name: null,
+    last_email_sent_by_role: null,
   });
   if (member.key_id) await db.revokeToken(member.key_id);
 

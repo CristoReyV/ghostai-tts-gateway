@@ -81,6 +81,7 @@ function renderGhostAIMemberInvitationEmail({
   invitationExpiresAt,
   accessKey = null,
   deliveryType = "INVITATION",
+  emailType = null,
 }) {
   const safeName = escapeHtml(name || "Estimado miembro");
   const planLabel = formatPlanLabel(plan);
@@ -88,16 +89,20 @@ function renderGhostAIMemberInvitationEmail({
   const safeLink = escapeHtml(activationLink);
 
   const replacement = deliveryType === "ACCESS_REPLACEMENT";
+  const openAccess = deliveryType !== "INVITATION";
+  const renewal = emailType === "RENEWAL";
+  const heading = replacement ? "Tu acceso a GhostAI fue actualizado" : renewal ? "Tu acceso a GhostAI fue renovado" : openAccess ? "Tu acceso a GhostAI está disponible" : "Tu acceso a GhostAI ya está listo";
+  const intro = replacement ? "Tu llave anterior dejó de funcionar. Tu plan y vencimiento se mantienen." : renewal ? "Tu renovación ya está registrada. Puedes seguir usando tu llave personal." : openAccess ? "Vuelve a GhostAI usando tu llave personal." : "Ya puedes activar tu cuenta personal en GhostAI TTS Studio.";
   const visibleKey = accessKey || "gai_live_••••••••.••••••••";
   const safeKey = escapeHtml(visibleKey);
-  const ctaLabel = replacement ? "ABRIR GHOSTAI" : "ACTIVAR Y ENTRAR A GHOSTAI";
-  const subject = replacement ? "Tu acceso a GhostAI fue actualizado" : "Tu acceso a GhostAI ya está listo";
-  const preheader = replacement ? "Guarda tu nueva llave y vuelve a GhostAI." : "Activa tu acceso a GhostAI TTS Studio.";
+  const ctaLabel = openAccess ? "ABRIR GHOSTAI" : "ACTIVAR Y ENTRAR A GHOSTAI";
+  const subject = heading;
+  const preheader = openAccess ? "Guarda tu llave y vuelve a GhostAI." : "Activa tu acceso a GhostAI TTS Studio.";
 
   // Plain Text Version (Section 8)
   const text = `Hola, ${name || "miembro"}.
 
-${replacement ? "Tu acceso a GhostAI fue actualizado. Tu llave anterior dejó de funcionar. Tu plan y vencimiento se mantienen." : "Tu acceso a GhostAI ya está listo."}
+${heading}. ${intro}
 
 Plan: ${planLabel}
 
@@ -111,7 +116,7 @@ Selecciona y copia esta llave antes de continuar.
 ${ctaLabel}:
 ${activationLink}
 
-${replacement ? "Este reemplazo no inicia un nuevo periodo ni modifica tu vencimiento." : "Este enlace es personal y expira el " + formatExpiryDate(invitationExpiresAt) + "."}
+${replacement ? "Este reemplazo no inicia un nuevo periodo ni modifica tu vencimiento." : openAccess ? "Abrir GhostAI no cambia tu vigencia registrada." : "Este enlace es personal y expira el " + formatExpiryDate(invitationExpiresAt) + "."}
 
 ¿Ya utilizaste el enlace o cerraste la pestaña? No pasa nada.
 Vuelve a GhostAI e introduce la llave que aparece en este correo.
@@ -187,7 +192,7 @@ Si necesitas ayuda con tu acceso, contacta a quien te envió esta invitación.
 
               <!-- Headline -->
               <h1 style="margin: 0 0 12px 0; font-size: 24px; font-weight: 700; color: #ffffff; line-height: 1.3;">
-                ${replacement ? "Tu acceso a GhostAI fue actualizado." : "Tu acceso ya está listo"}
+                ${escapeHtml(openAccess ? heading : "Tu acceso ya está listo")}
               </h1>
 
               <!-- Greeting & Subtext -->
@@ -195,7 +200,7 @@ Si necesitas ayuda con tu acceso, contacta a quien te envió esta invitación.
                 Hola, <strong style="color: #ffffff;">${safeName}</strong>.
               </p>
               <p style="margin: 0 0 28px 0; font-size: 15px; color: #a1a1aa; line-height: 1.6;">
-                ${replacement ? "Tu llave anterior dejó de funcionar. Tu plan y vencimiento se mantienen." : "Ya puedes activar tu cuenta personal en GhostAI TTS Studio."}
+                ${escapeHtml(intro)}
               </p>
 
               <!-- Plan Details Box -->
@@ -212,7 +217,7 @@ Si necesitas ayuda con tu acceso, contacta a quien te envió esta invitación.
                         </td>
                         <td align="right">
                           <span style="display: inline-block; background-color: #23272c; color: #10b981; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 4px; border: 1px solid #2f343b;">
-                            ${replacement ? "VIGENCIA CONSERVADA" : "ACTIVO AL INGRESAR"}
+                            ${openAccess ? "VIGENCIA REGISTRADA" : "ACTIVO AL INGRESAR"}
                           </span>
                         </td>
                       </tr>
@@ -249,7 +254,7 @@ Si necesitas ayuda con tu acceso, contacta a quien te envió esta invitación.
 
               <!-- Security Notice -->
               <p style="margin: 0 0 16px 0; font-size: 13px; color: #71717a; line-height: 1.5; text-align: center;">
-                ${replacement ? "Este reemplazo no inicia un nuevo periodo ni modifica tu vencimiento." : `Este enlace es personal y de uso único. Expira el <strong style="color: #a1a1aa;">${expiryFormatted}</strong>.`}
+                ${replacement ? "Este reemplazo no inicia un nuevo periodo ni modifica tu vencimiento." : openAccess ? "Abrir GhostAI no cambia tu vigencia registrada." : `Este enlace es personal y de uso único. Expira el <strong style="color: #a1a1aa;">${expiryFormatted}</strong>.`}
               </p>
 
               <!-- Fallback URL display -->

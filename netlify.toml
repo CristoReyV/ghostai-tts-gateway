@@ -318,3 +318,8 @@
     X-Frame-Options = "DENY"
     X-Content-Type-Options = "nosniff"
     Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
+[[redirects]]
+  from = "/api/admin/members/mark-email"
+  to = "/.netlify/functions/admin-members-mark-email"
+  status = 200
+  force = true

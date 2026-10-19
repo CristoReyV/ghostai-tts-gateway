@@ -37,7 +37,7 @@ function sourceDate(value) {
   const result = m ? `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}` : null;
   return validDate(result) ? result : null;
 }
-function reconcileSheet(rows, members, sourceId) {
+function reconcileSheet(rows, members, sourceId, inspectRow) {
   const headerIndex = rows.findIndex(r => r.some(c => /correo|email|e-mail/.test(normalize(c))) && r.some(c => /nombre|name/.test(normalize(c))));
   if (headerIndex < 0) throw new Error("SHEET_HEADERS_NOT_FOUND");
   const headers = rows[headerIndex];
@@ -53,12 +53,13 @@ function reconcileSheet(rows, members, sourceId) {
     if (!name && !email) { summaryRows++; continue; }
     const matches = members.filter(m => emailKey(m.email) === email);
     const plan = /^(mensual|monthly)$/.test(normalize(r[cols.plan])) ? "monthly" : /^(anual|annual)$/.test(normalize(r[cols.plan])) ? "annual" : null;
-    if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || counts.get(email) > 1 || matches.length !== 1 || !plan || matches[0].access_plan !== plan) {
-      issues.push({ row, reason: counts.get(email) > 1 ? "DUPLICATE_EMAIL" : matches.length !== 1 ? "MEMBER_MATCH_REVIEW" : "INVALID_OR_PLAN_MISMATCH" }); continue;
-    }
     const amount = amountMinor(r[cols.amount]);
     const currencyText = String(cols.currency < 0 ? currencyHint || "" : r[cols.currency] || "").trim().toUpperCase();
     const currency = /^(USD|MXN)$/.test(currencyText) ? currencyText : null;
+    inspectRow?.({ row, name, email, plan, rawPlan: String(r[cols.plan] || "").trim(), amount, amountMissing: String(r[cols.amount] ?? "").trim() === "", currency, matches, duplicate: counts.get(email) > 1 });
+    if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || counts.get(email) > 1 || matches.length !== 1 || !plan || matches[0].access_plan !== plan) {
+      issues.push({ row, reason: counts.get(email) > 1 ? "DUPLICATE_EMAIL" : matches.length !== 1 ? "MEMBER_MATCH_REVIEW" : "INVALID_OR_PLAN_MISMATCH" }); continue;
+    }
     const statusText = normalize(r[cols.status]);
     const status = /^(paid|pagado|cobrado|completado)$/.test(statusText) ? "paid" : /^(pending|pendiente|por cobrar|no pagado)$/.test(statusText) ? "pending" : "unknown";
     const paidAt = sourceDate(r[cols.date]);
@@ -104,6 +105,7 @@ function dashboard(state, members, options = {}, now = new Date()) {
   const renewals = profiles.filter(p => p.memberStatus === "active" && p.expiresAt && Date.parse(p.expiresAt) > now.getTime() && Date.parse(p.expiresAt) <= now.getTime() + 30 * 86400000).sort((a, b) => a.expiresAt.localeCompare(b.expiresAt)).map(p => ({ ...p, days: Math.ceil((Date.parse(p.expiresAt) - now.getTime()) / 86400000) }));
   const firstPaid = new Map(); for (const t of transactions.filter(t => t.status === "paid" && t.paid_at && validMoney(t))) if (!firstPaid.has(t.member_id) || t.paid_at < firstPaid.get(t.member_id)) firstPaid.set(t.member_id, t.paid_at);
   return { month, previousMonth, currency, currencies, members: profiles, transactions, sync: state.sync,
+    commercial: { total: profiles.filter(p => p.currency === currency && p.amountMinor !== null).reduce((sum, p) => sum + Number(p.amountMinor), 0), members: profiles.filter(p => p.currency === currency && p.amountMinor !== null).length, needsReview: profiles.filter(p => p.amountMinor === null || !p.currency).length },
     summary: { collected: revenue, registered: sum(registered(month)), previousCollected: prevRevenue, differencePercent: prevRevenue ? (revenue - prevRevenue) / prevRevenue * 100 : null, pending: sum(transactions.filter(t => t.status === "pending")), averageTicket: paid.length ? Math.round(revenue / paid.length) : null, annualCollected: sum(paid.filter(t => t.access_plan === "annual")), monthlyCollected: sum(paid.filter(t => t.access_plan === "monthly")), mrr: recurring.length ? recurring.reduce((a, p) => a + Number(p.amountMinor), 0) : null, activePayingMembers: confirmed.length, newPayingMembers: [...firstPaid.values()].filter(d => d.slice(0, 7) === month).length, undated: sum(transactions.filter(t => !t.billing_period && !t.paid_at)), undatedCount: transactions.filter(t => validMoney(t) && !t.billing_period && !t.paid_at).length, needsReview: profiles.filter(p => p.amountMinor === null || !p.currency).length },
     goal: { target, revision: goal?.revision || 0, progress: target ? revenue / target * 100 : null, remaining: target === null ? null : Math.max(0, target - revenue) }, trend, renewals,
     breakdown: ["monthly", "annual"].map(plan => ({ plan, members: profiles.filter(p => p.plan === plan && p.currency === currency && p.amountMinor !== null).length, collected: sum(paid.filter(t => t.access_plan === plan)), registered: sum(registered(month).filter(t => t.access_plan === plan)), undated: sum(transactions.filter(t => t.access_plan === plan && !t.paid_at && !t.billing_period)) })),

@@ -449,6 +449,14 @@ async function activateMemberAccess(tokenString) {
   };
 }
 
+// Change a pending plan only while activation and expiration remain unset.
+async function updatePendingMemberAccessPlan(memberId, expectedPlan, nextPlan) {
+  const member = await db.updatePendingMemberPlan(memberId, expectedPlan, nextPlan);
+  if (!member) throw Object.assign(new Error("El acceso cambió. Revisa de nuevo el plan."), { statusCode: 409 });
+  await db.logOperationEvent({stage:"member_access",eventType:"pending_member_plan_updated",clientId:member.client_id,metadata:{memberId,oldPlan:expectedPlan,newPlan:nextPlan}});
+  return member;
+}
+
 /**
  * Renews an existing member (+30 days if monthly, +365 days if annual).
  *
@@ -655,6 +663,7 @@ module.exports = {
   createMemberWithAccess,
   activateMemberAccess,
   renewMemberAccess,
+  updatePendingMemberAccessPlan,
   revokeMemberAccess,
   inviteMember,
   regenerateMemberKey,

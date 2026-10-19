@@ -619,7 +619,7 @@ async function getMemberByEmail(email) {
       client:ghostai_clients(id, name, email, status),
       key:ghostai_access_tokens(id, token_public_id, label, created_at, status, expires_at, last_used_at)
     `)
-    .ilike("email", target)
+    .ilike("email", target.replace(/([\\%_])/g, "\\$1"))
     .maybeSingle();
 
   if (error) throw new Error(error.message);
@@ -719,6 +719,22 @@ async function updateMember(memberId, updates) {
 
   if (error) throw new Error(error.message);
   return record ? enrichMemberStatus(record) : null;
+}
+
+// A plan may change before activation; never restart or alter an access period.
+async function updatePendingMemberPlan(memberId, expectedPlan, nextPlan) {
+  if (!["monthly", "annual"].includes(nextPlan)) throw new Error("INVALID_PLAN");
+  if (isMemoryMode()) {
+    const member = _memoryMembers.get(memberId);
+    if (!member || member.status !== "pending" || member.activated_at || member.expires_at || member.access_plan !== expectedPlan) return null;
+    member.access_plan = nextPlan;
+    return enrichMemberStatus({ ...member });
+  }
+  const { data, error } = await getSupabaseClient().from("ghostai_members")
+    .update({ access_plan: nextPlan }).eq("id", memberId).eq("status", "pending")
+    .eq("access_plan", expectedPlan).is("activated_at", null).is("expires_at", null).select().maybeSingle();
+  if (error) throw new Error("PENDING_PLAN_UPDATE_FAILED");
+  return data ? enrichMemberStatus(data) : null;
 }
 
 /**
@@ -1986,6 +2002,7 @@ module.exports = {
   getMemberByClientId,
   listMembers,
   updateMember,
+  updatePendingMemberPlan,
   renewMember,
   revokeMember,
   createActivationTokenRecord,

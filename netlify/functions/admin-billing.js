@@ -5,6 +5,7 @@ const { corsHeaders, preflightResponse } = require("./lib/cors");
 const db = require("./lib/db");
 const store = require("./lib/billingStore");
 const core = require("./lib/billingCore");
+const sheetSync = require("./lib/sheetSyncService");
 const fail = message => { throw Object.assign(new Error(message), { statusCode: 400 }); };
 const money = v => v === null || (Number.isSafeInteger(v) && v >= 0 && v <= 100000000000);
 exports.handler = async event => {
@@ -16,20 +17,17 @@ exports.handler = async event => {
   if (!auth.ok) return respond(auth.statusCode, { error: auth.error });
   if (!["owner", "operator"].includes(auth.admin.role)) return respond(403, { error: { message: "Acceso no autorizado." } });
   try {
-    const members = await db.listMembers();
-    if (event.httpMethod === "GET") return respond(200, { ok: true, dashboard: core.dashboard(await store.read(), members, event.queryStringParameters || {}) });
+    if (event.httpMethod === "GET") {
+      const state = await store.read();
+      if (event.queryStringParameters?.sync === "status") return respond(200, { ok: true, sync: state.sync });
+      return respond(200, { ok: true, dashboard: core.dashboard(state, await db.listMembers(), event.queryStringParameters || {}) });
+    }
     let body; try { body = JSON.parse(event.body || "{}"); } catch { fail("JSON inválido."); }
     const { action } = body; let payload;
-    if (action === "sync") {
-      const sheetId = process.env.GHOSTAI_BILLING_SHEET_ID;
-      if (!sheetId || !/^[\w-]+$/.test(sheetId)) throw Object.assign(new Error("Configura la fuente Google Sheet en el servidor."), { statusCode: 503 });
-      const response = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=0`, { signal: AbortSignal.timeout(12000) });
-      if (!response.ok || !response.headers.get("content-type")?.includes("csv")) throw new Error("SHEET_UNAVAILABLE");
-      const csv = await response.text(); if (csv.length > 500000) fail("La hoja excede el límite de sincronización.");
-      const reconciled = core.reconcileSheet(core.parseCsv(csv), members, sheetId);
-      if (!reconciled.records.length) fail("No hay miembros conciliados; no se modificó facturación.");
-      payload = reconciled;
-    } else if (action === "goal") {
+    if (action === "sync-preview") return respond(200, { ok: true, preview: await sheetSync.previewSheetSync(auth.admin) });
+    if (action === "sync") return respond(200, await sheetSync.applySheetSync(auth.admin, body.previewToken));
+    const members = await db.listMembers();
+    if (action === "goal") {
       if (!core.validMonth(body.month) || !/^(USD|MXN)$/.test(body.currency) || !money(body.targetMinor) || !body.targetMinor || !Number.isInteger(body.expectedRevision)) fail("Meta, mes, moneda o revisión inválidos.");
       payload = { month: body.month, currency: body.currency, targetMinor: body.targetMinor, expectedRevision: body.expectedRevision };
     } else if (["price", "payment"].includes(action)) {

@@ -25,11 +25,12 @@ async function memoryWrite(action, p, actor) {
   const conflict = () => { throw Object.assign(new Error("BILLING_CONFLICT"), { statusCode: 409 }); };
   const entry = r => ({ id: crypto.randomUUID(), ...r, created_at: now, created_by: actor.id });
   if (action === "sync") {
+    if (p.confirmedPreview && p.records.some(r => (memory.profiles.find(profile => profile.member_id === r.member_id)?.revision || 0) !== r.expectedProfileRevision)) conflict();
     let created = 0, updated = 0;
     for (const row of p.records) {
       let profile = memory.profiles.find(r => r.member_id === row.member_id);
       if (!profile) { profile = { member_id: row.member_id, revision: 0 }; memory.profiles.push(profile); }
-      if (profile.source_hash !== row.source_hash) {
+      if (profile.source_hash !== row.source_hash || (p.applyCurrentValues && (profile.amount_minor !== row.amount_minor || profile.currency !== row.currency))) {
         if (profile.revision) await audit("billing_amount_corrected", row.member_id, { source: "GOOGLE_SHEET", previousAmount: profile.amount_minor, amount: row.amount_minor });
         Object.assign(profile, { amount_minor: row.amount_minor, currency: row.currency, source: "GOOGLE_SHEET", source_hash: row.source_hash, revision: profile.revision + 1, updated_at: now }); updated++;
       }

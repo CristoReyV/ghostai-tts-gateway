@@ -3,9 +3,9 @@
 const { requireAdminAuth } = require("./adminAuth");
 const db = require("./db");
 const OPERATOR_CAPABILITIES = new Set([
-  "session", "member.read", "member.invitation.preview", "member.invitation.send", "member.invitation.link", "member.email.track",
+  "session", "member.read", "member.invitation.preview", "member.invitation.send", "member.invitation.link", "member.email.track", "billing.read",
 ]);
-const OWNER_ONLY = new Set(["owner", "member.create_key", "admin.keys"]);
+const OWNER_ONLY = new Set(["owner", "member.create_key", "admin.keys", "billing.write"]);
 
 async function authorizeAdmin(event, requestId = "", capability = "admin") {
   const auth = requireAdminAuth(event, requestId);

@@ -1,0 +1,13 @@
+# Control comercial 09
+
+`GET /api/admin/billing`: OWNER/OPERATOR. `POST`: OWNER only; the authenticated identity is authoritative. No payment processing, fiscal invoicing, access renewal or email delivery occurs here.
+
+The existing member sheet is configured with `<GHOSTAI_BILLING_SHEET_ID>`. OWNER synchronization reads its current CSV, detects financial headers, matches normalized email uniquely, excludes summary rows/duplicate emails/unmatched members/plan discrepancies, and reports issues. It never changes member records. The source remains read only.
+
+Amounts use integer cents, separately for USD and MXN. Missing/malformed amounts and unknown currencies are excluded from totals. Missing payment status means **registered, unconfirmed**, never paid. Import time and activation time are not payment dates. Undated entries are excluded from monthly totals, trends and goals and displayed separately. Earlier transaction history cannot be recovered from a current-price sheet.
+
+Cash collected uses explicit paid status and actual payment date in the selected month. Registered monthly totals use unconfirmed entries with an explicit billing period. Pending is outstanding recorded amount across periods. Average ticket uses known confirmed payments in that month. MRR is a reference using current monthly prices of active members with confirmed payment evidence, with annual plans excluded. It does not imply a recurring contract or automatic charge. Goals use confirmed cash, per month/currency, and remain unset until OWNER configures them.
+
+Each sheet/member has a deterministic ledger key. Repeated sync does not add transactions. Changes to sheet prices update the current commercial profile and audit, leaving historical amounts unchanged. Subsequent payment attestations or renewals are explicit OWNER entries; sheet changes alone do not invent a new historical payment. OWNER corrections append a revision with a mandatory reason; prior revisions remain stored and the latest revision is used in reporting. New OWNER entries are idempotent by member/period/type. Price/goal edits use optimistic revisions; payment corrections require the current entry ID. Concurrent writes and audit commit atomically in the service-only INVOKER RPC. The ledger has SELECT/INSERT privileges only; no UPDATE or DELETE grant.
+
+Renewal indicators use active members and the existing expiration date, without changing it. Revenue goals, price corrections, payment changes and imports are audited under the authenticated OWNER. OPERATOR is read only in both API and UI. No secrets or whole spreadsheet rows are written to audit.

@@ -1955,6 +1955,7 @@ async function revokeAdminKeys(adminId) {
 }
 
 module.exports = {
+  isMemoryMode, getSupabaseClient,
   markMemberEmail,
   createAdminKey, getAdminKey, updateAdminKey, revokeAdminKeys,
   createClient,

@@ -91,7 +91,8 @@ function dashboard(state, members, options = {}, now = new Date()) {
   const paid = collected(month), revenue = sum(paid), prevRevenue = sum(collected(previousMonth));
   const profiles = members.map(m => {
     const profile = state.profiles.find(p => p.member_id === m.id);
-    const history = transactions.filter(t => t.member_id === m.id).sort((a, b) => b.created_at.localeCompare(a.created_at) || b.revision - a.revision);
+    const chronology = t => `${t.billing_period || t.paid_at?.slice(0, 7) || ""}|${t.paid_at || ""}`;
+    const history = transactions.filter(t => t.member_id === m.id).sort((a, b) => chronology(b).localeCompare(chronology(a)) || b.created_at.localeCompare(a.created_at) || b.revision - a.revision);
     const entry = history[0] || null;
     return { memberId: m.id, name: m.name, email: m.email, plan: m.access_plan, memberStatus: m.status, expiresAt: m.expires_at, amountMinor: profile?.amount_minor ?? null, currency: profile?.currency || null, revision: profile?.revision || 0, paymentStatus: entry?.status || "unknown", paidAt: entry?.paid_at || null, period: entry?.billing_period || null, entry, source: profile?.source || null };
   });

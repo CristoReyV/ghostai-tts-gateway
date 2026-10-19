@@ -8,6 +8,7 @@
 "use strict";
 
 const crypto = require("crypto");
+const {requireAccessPlan}=require("./accessPlans");
 const { sanitizeOperationalError, sanitizeOperationalMetadata, sanitizeSourceManifest } = require("./errorCatalog");
 let supabaseJs = null;
 
@@ -512,7 +513,7 @@ function enrichMemberStatus(m) {
  */
 async function createMemberRecord({ clientId, keyId, name, email, accessPlan }) {
   const normalizedEmail = email.trim();
-  const normalizedPlan = (accessPlan === "annual" || accessPlan === "Anual") ? "annual" : "monthly";
+  const normalizedPlan = requireAccessPlan(accessPlan || "monthly");
   const now = new Date().toISOString();
 
   if (isMemoryMode()) {
@@ -723,7 +724,7 @@ async function updateMember(memberId, updates) {
 
 // A plan may change before activation; never restart or alter an access period.
 async function updatePendingMemberPlan(memberId, expectedPlan, nextPlan) {
-  if (!["monthly", "annual"].includes(nextPlan)) throw new Error("INVALID_PLAN");
+  nextPlan = requireAccessPlan(nextPlan);
   if (isMemoryMode()) {
     const member = _memoryMembers.get(memberId);
     if (!member || member.status !== "pending" || member.activated_at || member.expires_at || member.access_plan !== expectedPlan) return null;
@@ -750,7 +751,9 @@ async function renewMember(memberId, extension = null) {
     throw err;
   }
 
-  const plan = extension || member.access_plan;
+  if (member.access_plan === "lifetime") throw Object.assign(new Error("El acceso De por vida no necesita renovación."), {code:"LIFETIME_NO_RENEWAL",statusCode:409});
+  const plan = requireAccessPlan(extension || member.access_plan);
+  if (plan === "lifetime") throw Object.assign(new Error("El cambio a De por vida requiere revisar el plan; no es una renovación."), {code:"VALIDATION_INVALID_PLAN",statusCode:400});
   const days = plan === "annual" ? 365 : 30;
   const durationMs = days * 24 * 60 * 60 * 1000;
   const now = Date.now();

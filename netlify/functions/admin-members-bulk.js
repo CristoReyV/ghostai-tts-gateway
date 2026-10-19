@@ -86,6 +86,7 @@ exports.handler = async (event) => {
     let errorCount = 0;
     let monthlyCount = 0;
     let annualCount = 0;
+    let lifetimeCount = 0;
 
     // 3. Process each validated row
     for (const row of validation.rows) {
@@ -124,6 +125,7 @@ exports.handler = async (event) => {
         newCount++;
         if (row.accessPlan === "monthly") monthlyCount++;
         if (row.accessPlan === "annual") annualCount++;
+        if (row.accessPlan === "lifetime") lifetimeCount++;
 
         createdMembers.push(creation.member);
         emailPayloads.push(creation.emailPayload);
@@ -172,6 +174,7 @@ exports.handler = async (event) => {
           errorCount,
           monthlyCount,
           annualCount,
+          lifetimeCount,
         },
         results,
         createdMembers,

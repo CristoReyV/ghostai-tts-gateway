@@ -80,6 +80,7 @@ exports.handler = async (event) => {
       origin
     );
   } catch (err) {
+    if (err.code === "LIFETIME_NO_RENEWAL") return jsonResponse(409, {error:{code:err.code,message:err.message},requestId}, origin);
     if (err.code === "MEMBER_NOT_FOUND") {
       const errPayload = makeError(404, "MEMBER_NOT_FOUND", "Miembro no encontrado.", requestId);
       return jsonResponse(404, { error: errPayload.error, requestId }, origin);

@@ -24,12 +24,12 @@ beforeEach(async()=>{
 afterEach(()=>jest.restoreAllMocks());afterAll(()=>db._setMemoryStoreEnabled(false));
 
 test("official new-member lifecycle, no leaked credentials, refresh metadata and a second identical sync creates nothing",async()=>{
-  csv+="\nNew,new@qa.invalid,Mensual,14\nLifetime,lifetime@qa.invalid,De por vida,150";
+  csv+="\nNew,new@qa.invalid,Mensual,14\nUnsupported,unsupported@qa.invalid,Trimestral,150";
   const originalMembers=await db.listMembers(),originalLedger=(await store.read()).transactions;
   const p=await preview();expect(p).toMatchObject({rows:4,validRows:3,counts:{newMembers:1,invalid:1,needsReview:1}});expect(p.totals[0]).toEqual({currency:"USD",beforeMinor:9900,afterMinor:11300,sheetMinor:26300});
   const response=await apply(p.previewToken);expect(response.statusCode).toBe(200);expect(/gai_(live|act|admin)_/.test(response.body)).toBe(false);
   const newMember=await db.getMemberByEmail("new@qa.invalid");expect(newMember).toMatchObject({status:"pending",activated_at:null,expires_at:null});expect(newMember.last_email_sent_at??null).toBeNull();expect(newMember.key_id).toBeTruthy();
-  expect(await db.getMemberByEmail("lifetime@qa.invalid")).toBeNull();expect(await db.listClients()).toHaveLength(3);expect(await db.listTokens()).toHaveLength(3);
+  expect(await db.getMemberByEmail("unsupported@qa.invalid")).toBeNull();expect(await db.listClients()).toHaveLength(3);expect(await db.listTokens()).toHaveLength(3);
   for(const old of originalMembers)expect(await db.getMemberById(old.id)).toMatchObject({key_id:old.key_id,status:old.status,activated_at:old.activated_at,expires_at:old.expires_at,access_plan:old.access_plan});
   const state=await store.read();expect(state.transactions.filter(t=>originalLedger.some(o=>o.id===t.id))).toEqual(originalLedger);expect(state.sync.metadata).toMatchObject({lastSheetSyncBy:{adminId:null,role:"owner"},rowsProcessed:4,lastChanges:{newMembers:1,amountChanges:0,planChanges:0,needsReview:1}});expect(state.sync.metadata.sourceFingerprint).toMatch(/^[a-f0-9]{64}$/);
   const again=await preview();expect(again.counts).toMatchObject({newMembers:0,amountsUpdated:0,plansChanged:0});expect((await apply(again.previewToken)).statusCode).toBe(200);expect((await store.read()).transactions).toEqual(state.transactions);expect(await db.listClients()).toHaveLength(3);expect(await db.listTokens()).toHaveLength(3);

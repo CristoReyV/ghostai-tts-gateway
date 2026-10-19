@@ -1,4 +1,5 @@
 "use strict";
+const {normalizeAccessPlan}=require("./accessPlans");
 const crypto = require("crypto");
 const normalize = value => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 const emailKey = value => String(value ?? "").trim().toLowerCase();
@@ -52,7 +53,7 @@ function reconcileSheet(rows, members, sourceId, inspectRow) {
     const email = emailKey(r[cols.email]); const name = String(r[cols.name] || "").trim();
     if (!name && !email) { summaryRows++; continue; }
     const matches = members.filter(m => emailKey(m.email) === email);
-    const plan = /^(mensual|monthly)$/.test(normalize(r[cols.plan])) ? "monthly" : /^(anual|annual)$/.test(normalize(r[cols.plan])) ? "annual" : null;
+    const plan = normalizeAccessPlan(r[cols.plan]);
     const amount = amountMinor(r[cols.amount]);
     const currencyText = String(cols.currency < 0 ? currencyHint || "" : r[cols.currency] || "").trim().toUpperCase();
     const currency = /^(USD|MXN)$/.test(currencyText) ? currencyText : null;
@@ -108,7 +109,7 @@ function dashboard(state, members, options = {}, now = new Date()) {
     commercial: { total: profiles.filter(p => p.currency === currency && p.amountMinor !== null).reduce((sum, p) => sum + Number(p.amountMinor), 0), members: profiles.filter(p => p.currency === currency && p.amountMinor !== null).length, needsReview: profiles.filter(p => p.amountMinor === null || !p.currency).length },
     summary: { collected: revenue, registered: sum(registered(month)), previousCollected: prevRevenue, differencePercent: prevRevenue ? (revenue - prevRevenue) / prevRevenue * 100 : null, pending: sum(transactions.filter(t => t.status === "pending")), averageTicket: paid.length ? Math.round(revenue / paid.length) : null, annualCollected: sum(paid.filter(t => t.access_plan === "annual")), monthlyCollected: sum(paid.filter(t => t.access_plan === "monthly")), mrr: recurring.length ? recurring.reduce((a, p) => a + Number(p.amountMinor), 0) : null, activePayingMembers: confirmed.length, newPayingMembers: [...firstPaid.values()].filter(d => d.slice(0, 7) === month).length, undated: sum(transactions.filter(t => !t.billing_period && !t.paid_at)), undatedCount: transactions.filter(t => validMoney(t) && !t.billing_period && !t.paid_at).length, needsReview: profiles.filter(p => p.amountMinor === null || !p.currency).length },
     goal: { target, revision: goal?.revision || 0, progress: target ? revenue / target * 100 : null, remaining: target === null ? null : Math.max(0, target - revenue) }, trend, renewals,
-    breakdown: ["monthly", "annual"].map(plan => ({ plan, members: profiles.filter(p => p.plan === plan && p.currency === currency && p.amountMinor !== null).length, collected: sum(paid.filter(t => t.access_plan === plan)), registered: sum(registered(month).filter(t => t.access_plan === plan)), undated: sum(transactions.filter(t => t.access_plan === plan && !t.paid_at && !t.billing_period)) })),
+    breakdown: ["monthly", "annual", "lifetime"].map(plan => ({ plan, members: profiles.filter(p => p.plan === plan && p.currency === currency && p.amountMinor !== null).length, collected: sum(paid.filter(t => t.access_plan === plan)), registered: sum(registered(month).filter(t => t.access_plan === plan)), undated: sum(transactions.filter(t => t.access_plan === plan && !t.paid_at && !t.billing_period)) })),
     recent: transactions.filter(validMoney).sort((a, b) => (b.paid_at || b.billing_period || "").localeCompare(a.paid_at || a.billing_period || "") || b.created_at.localeCompare(a.created_at)).slice(0, 8).map(t => ({ ...t, name: members.find(m => m.id === t.member_id)?.name || "Miembro" })) };
 }
 module.exports = { amountMinor, parseCsv, reconcileSheet, dashboard, latestTransactions, validMonth, validDate, monthKey, digest };

@@ -9,6 +9,7 @@
 
 const crypto = require("crypto");
 const db = require("./db");
+const {requireAccessPlan,accessPlanLabel}=require("./accessPlans");
 const { generateClientToken, getPepper, hashSecret } = require("./tokenService");
 const { encryptCredential, decryptCredential, isEncryptionConfigured } = require("./credentialCrypto");
 
@@ -47,7 +48,7 @@ function buildActivationLink(tokenString) {
  *   memberId: string,
  *   name: string,
  *   email: string,
- *   plan: "monthly" | "annual",
+ *   plan: "monthly" | "annual" | "lifetime",
  *   activationLink: string
  * }} params
  * @returns {{
@@ -61,7 +62,7 @@ function buildActivationLink(tokenString) {
  * }}
  */
 function buildEmailPayload({ memberId, name, email, plan, activationLink }) {
-  const planLabel = plan === "annual" || plan === "Anual" ? "Anual" : "Mensual";
+  const planLabel = accessPlanLabel(plan);
   const subject = "Tu acceso a GhostAI ya está listo";
   const body = `Hola, ${name}.
 
@@ -202,7 +203,7 @@ async function issueActivationToken(memberId, plaintextKey = null) {
  * @param {{
  *   name: string,
  *   email: string,
- *   accessPlan: "monthly" | "annual" | "Mensual" | "Anual"
+ *   accessPlan: "monthly" | "annual" | "lifetime" | "Mensual" | "Anual" | "De por vida"
  * }} params
  * @returns {Promise<{
  *   member: object,
@@ -233,8 +234,7 @@ async function createMemberWithAccess({ name, email, accessPlan }) {
     throw err;
   }
 
-  const normalizedPlan =
-    accessPlan === "annual" || accessPlan === "Anual" ? "annual" : "monthly";
+  const normalizedPlan = requireAccessPlan(accessPlan || "monthly");
 
   // Check if member already exists
   const existing = await db.getMemberByEmail(normalizedEmail);
@@ -333,7 +333,7 @@ async function createMemberWithAccess({ name, email, accessPlan }) {
  *   clientName: string,
  *   accessPlan: string,
  *   activatedAt: string,
- *   expiresAt: string,
+ *   expiresAt: string | null,
  *   memberId: string
  * }>}
  */
@@ -407,7 +407,7 @@ async function activateMemberAccess(tokenString) {
   const activatedAt = now.toISOString();
   const durationDays = member.access_plan === "annual" ? ANNUAL_DURATION_DAYS : MONTHLY_DURATION_DAYS;
   const durationMs = durationDays * 86400 * 1000;
-  const expiresAt = new Date(now.getTime() + durationMs).toISOString();
+  const expiresAt = member.access_plan === "lifetime" ? null : new Date(now.getTime() + durationMs).toISOString();
 
   // 3. Activate member
   const updatedMember = await db.updateMember(member.id, {

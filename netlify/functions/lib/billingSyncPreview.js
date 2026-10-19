@@ -11,7 +11,7 @@ function buildSyncPreview(rows, members, state, sourceId) {
   const operations=[],details=[],sourceValues=[];
   const before=members.map(m=>state.profiles.find(p=>p.member_id===m.id)||{member_id:m.id,amount_minor:null,currency:null});
   const projected=new Map(before.map(p=>[p.member_id,{...p}]));
-  let validRows=0,existingMembers=0,monthly=0,annual=0,safePlanChanges=0;
+  let validRows=0,existingMembers=0,monthly=0,annual=0,lifetime=0,safePlanChanges=0;
   for(const row of inspected) {
     const emailValid=/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email);
     if(row.name&&emailValid&&!row.duplicate&&row.matches.length<=1&&row.amount!==null&&row.currency) sourceValues.push({amount_minor:row.amount,currency:row.currency});
@@ -20,7 +20,7 @@ function buildSyncPreview(rows, members, state, sourceId) {
     let reason=!row.name?"Nombre ausente":!emailValid?"Correo inválido":row.duplicate?"Correo duplicado en la hoja":row.matches.length>1?"Más de un miembro coincide con el correo":!row.plan?"Plan no soportado: "+(row.rawPlan||"sin plan"):!row.currency?"Moneda no indicada o no soportada":row.amount===null&&!row.amountMissing?"Monto inválido":null;
     const detail={row:row.row,name:row.name||"Fila "+row.row,classification:"INVALID",reason,oldPlan:member?.access_plan||null,newPlan:row.plan||row.rawPlan||null,oldAmountMinor:minor(profile),newAmountMinor:row.amount,currency:row.currency,willApply:false};
     if(reason) {counts.invalid++;counts.needsReview++;details.push(detail);continue;}
-    validRows++;if(row.plan==="monthly")monthly++;else annual++;
+    validRows++;if(row.plan==="monthly")monthly++;else if(row.plan==="annual")annual++;else lifetime++;
     if(member)existingMembers++;
     const missing=row.amountMissing;if(missing)counts.missingAmounts++;
     const planChanged=!!member&&member.access_plan!==row.plan;
@@ -55,7 +55,7 @@ function buildSyncPreview(rows, members, state, sourceId) {
   const applicableMemberIds=new Set(applicable.filter(o=>o.member).map(o=>o.member.id));
   const records=reconciled.records.filter(r=>applicableMemberIds.has(r.member_id));
   return {
-    preview:{previewToken,sourceFingerprint,rows:reconciled.metadata.rows,validRows,existingMembers,monthly,annual,counts,safePlanChanges,applicableRows:applicable.length,canApply:applicable.length>0&&applicable.length<=1000,existingNotInSheet:notInSheet.length,details,lastSync:state.sync||null,totals:currencies.map(currency=>({currency,beforeMinor:total(before,currency),afterMinor:total(after,currency),sheetMinor:total(sourceValues,currency)})),unknownAmounts:{before:before.filter(p=>!known(p)).length,after:after.filter(p=>!known(p)).length}},
+    preview:{previewToken,sourceFingerprint,rows:reconciled.metadata.rows,validRows,existingMembers,monthly,annual,lifetime,counts,safePlanChanges,applicableRows:applicable.length,canApply:applicable.length>0&&applicable.length<=1000,existingNotInSheet:notInSheet.length,details,lastSync:state.sync||null,totals:currencies.map(currency=>({currency,beforeMinor:total(before,currency),afterMinor:total(after,currency),sheetMinor:total(sourceValues,currency)})),unknownAmounts:{before:before.filter(p=>!known(p)).length,after:after.filter(p=>!known(p)).length}},
     operations,notInSheetMemberIds:notInSheet.map(m=>m.id),
     payload:{records,metadata:{...reconciled.metadata,matched:records.length}},
   };

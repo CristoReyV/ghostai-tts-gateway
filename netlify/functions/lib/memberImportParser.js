@@ -6,6 +6,7 @@
  */
 
 "use strict";
+const {normalizeAccessPlan,accessPlanLabel}=require("./accessPlans");
 
 const JSZip = require("jszip");
 
@@ -32,17 +33,7 @@ function normalizeHeader(str) {
  * @param {string} val
  * @returns {"monthly" | "annual" | null}
  */
-function normalizePlan(val) {
-  if (!val || typeof val !== "string") return null;
-  const clean = val.toLowerCase().trim();
-  if (clean === "mensual" || clean === "monthly" || clean === "mes" || clean === "1 mes") {
-    return "monthly";
-  }
-  if (clean === "anual" || clean === "annual" || clean === "ano" || clean === "año" || clean === "1 ano" || clean === "1 año") {
-    return "annual";
-  }
-  return null;
-}
+function normalizePlan(val) { return normalizeAccessPlan(val); }
 
 /**
  * Parses a single CSV line according to RFC 4180 rules.
@@ -372,6 +363,7 @@ function validateMemberRows(rows, existingMembers = []) {
   let errorCount = 0;
   let monthlyCount = 0;
   let annualCount = 0;
+  let lifetimeCount = 0;
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
@@ -379,7 +371,7 @@ function validateMemberRows(rows, existingMembers = []) {
     const name = (r.name || "").trim();
     const email = (r.email || "").trim();
     const plan = r.accessPlan;
-    const planLabel = plan === "annual" ? "Anual" : plan === "monthly" ? "Mensual" : r.rawPlan || "Desconocido";
+    const planLabel = plan ? accessPlanLabel(plan) : r.rawPlan || "Desconocido";
 
     let validationStatus = "Válido";
     let isValid = false;
@@ -402,7 +394,7 @@ function validateMemberRows(rows, existingMembers = []) {
     // 3. Plan validity check
     else if (!plan) {
       validationStatus = "Tipo de acceso desconocido";
-      errorMessage = `Tipo de acceso '${r.rawPlan}' no reconocido. Debe ser Mensual o Anual.`;
+      errorMessage = `Tipo de acceso '${r.rawPlan}' no reconocido. Debe ser Mensual, Anual o De por vida.`;
       errorCount++;
     }
     // 4. Duplicate in file check
@@ -427,6 +419,7 @@ function validateMemberRows(rows, existingMembers = []) {
       validCount++;
       if (plan === "monthly") monthlyCount++;
       if (plan === "annual") annualCount++;
+      if (plan === "lifetime") lifetimeCount++;
       seenEmailsInFile.add(email.toLowerCase());
     }
 
@@ -451,6 +444,7 @@ function validateMemberRows(rows, existingMembers = []) {
     errorCount,
     monthlyCount,
     annualCount,
+    lifetimeCount,
     rows: validatedRows,
   };
 }

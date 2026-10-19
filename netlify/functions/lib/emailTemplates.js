@@ -8,18 +8,14 @@
  */
 
 "use strict";
+const {accessPlanLabel}=require("./accessPlans");
 
 /**
  * Formats access plan label in Spanish.
  * @param {string} plan
  * @returns {string}
  */
-function formatPlanLabel(plan) {
-  if (!plan) return "Mensual";
-  const p = plan.toString().toLowerCase().trim();
-  if (p === "annual" || p === "anual") return "Anual";
-  return "Mensual";
-}
+function formatPlanLabel(plan) { return accessPlanLabel(plan || "monthly"); }
 
 /**
  * Formats a date into a friendly Spanish date string if valid ISO, or returns as-is.

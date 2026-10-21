@@ -3,7 +3,7 @@
 const { requireAdminAuth } = require("./adminAuth");
 const db = require("./db");
 const OPERATOR_CAPABILITIES = new Set([
-  "session", "member.read", "member.invitation.preview", "member.invitation.send", "member.invitation.link", "member.email.track", "billing.read",
+  "session", "member.read", "member.invitation.preview", "member.invitation.send", "member.invitation.link", "member.email.track", "billing.read", "personal_keys.read",
 ]);
 const OWNER_ONLY = new Set(["owner", "member.create_key", "admin.keys", "billing.write"]);
 

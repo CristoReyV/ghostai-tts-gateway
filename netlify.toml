@@ -3,6 +3,12 @@
   functions = "netlify/functions"
 
 [[redirects]]
+  from = "/api/admin/personal-keys"
+  to = "/.netlify/functions/admin-personal-keys"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/admin/billing"
   to = "/.netlify/functions/admin-billing"
   status = 200

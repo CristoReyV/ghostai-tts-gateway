@@ -2,7 +2,7 @@
 const db = require("./db");
 const { parseCsv, digest } = require("./billingCore");
 const { acquireLease } = require("./sheetSyncLease");
-const { createMemberWithAccess } = require("./memberService");
+const { createMemberWithAccess, revokeMemberAccess } = require("./memberService");
 const store = require("./skoolStore");
 const normalize = value => String(value || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
 const email = value => String(value || "").trim().toLowerCase();
@@ -66,7 +66,8 @@ function plan(input, members) {
       const expired = !!expiresAt && Date.parse(expiresAt) <= Date.now() || /^(expired|vencido|vencida)$/.test(row.rawStatus);
       details.push({ row: row.row, name: row.sourceName, classification: "INACTIVE_ROW", reason: expired ? "Vencido en la hoja" : "Baja indicada en la hoja" });
       if (expired) listed.add(row.email);
-      if (member?.access_plan === "skool" && member.skool_source_id === input.sourceId) {
+      if (member && member.access_plan !== "skool" && !member.revoked_at && member.status !== "revoked") operations.push({ type: "remove", member, expiresAt });
+      if (member?.access_plan === "skool" && member.skool_source_id === input.sourceId && !member.revoked_at) {
         if (expired) {
           const effectiveExpiry = expiresAt || member.skool_expires_at || new Date().toISOString();
           if (member.skool_removed_at || member.skool_expires_at !== effectiveExpiry) { operations.push({ type: "update", member, expiresAt: effectiveExpiry }); counts.expiryChanges++; }
@@ -82,16 +83,17 @@ function plan(input, members) {
       details.push({ row: row.row, name, classification: "NEW", reason: name !== row.sourceName ? "Cuenta separada con otro correo; se conserva la anterior" : null });
     } else {
       counts.existing++;
+      if (member.revoked_at) { details.push({ row: row.row, name: member.name, classification: "NEEDS_OWNER_REVIEW", reason: "Cuenta revocada: requiere revisión OWNER antes de volver a dar acceso" }); continue; }
       if (member.access_plan !== "skool" || member.skool_source_id !== input.sourceId) continue;
       if (member.skool_removed_at) { counts.rejoined++; details.push({ row: row.row, name: member.name, classification: "REJOINED" }); }
       if ((member.skool_expires_at || null) !== expiresAt) { counts.expiryChanges++; details.push({ row: row.row, name: member.name, classification: "EXPIRY_CHANGED" }); }
       if (member.skool_removed_at || (member.skool_expires_at || null) !== expiresAt) operations.push({ type: "update", member, expiresAt });
     }
   }
-  for (const member of members.filter(m => m.access_plan === "skool" && m.skool_source_id === input.sourceId && !m.skool_removed_at && !listed.has(email(m.email)))) {
+  for (const member of members.filter(m => !m.revoked_at && m.status !== "revoked" && !listed.has(email(m.email)))) {
     if (!operations.some(o => o.type === "remove" && o.member.id === member.id)) operations.push({ type: "remove", member, expiresAt: member.skool_expires_at || null });
   }
-  for (const operation of operations.filter(o => o.type === "remove")) { counts.removed++; details.push({ row: null, name: operation.member.name, classification: "REMOVED", reason: "Sin membresía SKOOL vigente en la hoja; no se borran datos ni keys" }); }
+  for (const operation of operations.filter(o => o.type === "remove")) { counts.removed++; details.push({ row: null, name: operation.member.name, classification: "REMOVED", reason: "Fuera de la lista vigente: se revocan su acceso, key y enlaces, sin importar el plan" }); }
   const sourceFingerprint = digest({ sourceId: input.sourceId, gid: input.gid, rows: input.rows });
   const previewToken = digest({ sourceFingerprint, members: members.map(m => [m.id, email(m.email), m.name, m.access_plan, m.status, m.key_id, m.activated_at, m.expires_at, m.revoked_at, m.skool_removed_at, m.skool_expires_at, m.skool_source_id]).sort((a, b) => a[0].localeCompare(b[0])) });
   return { operations, preview: { sourceId: input.sourceId, rows: rows.length, counts, details, sourceFingerprint, previewToken, canApply: rows.length > 0 && rows.length <= 1000 && counts.invalid === 0 } };
@@ -124,10 +126,12 @@ async function apply(admin, previewToken) {
       await audit(admin, "skool_member_created", { sourceId: input.sourceId, row: row.row, plan: "skool" }, result.member.id);
     }
     if (creates.length > BATCH_SIZE) return { ok: true, created, removed: 0, updated: 0, needsContinuation: true, remaining: creates.length - created, sourceFingerprint: planned.preview.sourceFingerprint };
-    for (const operation of planned.operations.filter(o => o.type !== "create")) {
+    const changes = planned.operations.filter(o => o.type !== "create");
+    for (const operation of changes.slice(0, BATCH_SIZE - created)) {
       await lease.renew();
       const member = operation.member, now = new Date().toISOString();
       if (operation.type === "remove") {
+        await revokeMemberAccess(member.id);
         await db.updateMember(member.id, { skool_removed_at: now, skool_synced_at: now, skool_expires_at: operation.expiresAt });
         removed++;
       } else {
@@ -138,6 +142,7 @@ async function apply(admin, previewToken) {
       }
       await audit(admin, operation.type === "remove" ? "skool_member_removed" : "skool_membership_updated", { sourceId: input.sourceId, sourceExpiry: operation.expiresAt }, member.id);
     }
+    if (changes.length > removed + updated) return { ok: true, created, removed, updated, needsContinuation: true, remaining: changes.length - removed - updated, sourceFingerprint: planned.preview.sourceFingerprint };
     const sync = await store.write(input.sourceId, { sourceId: input.sourceId, gid: input.gid, rows: planned.preview.rows, sourceFingerprint: planned.preview.sourceFingerprint, adminRole: "owner", createdThisBatch: created, removed, updated });
     await audit(admin, "skool_sync_applied", { sourceId: input.sourceId, sourceFingerprint: planned.preview.sourceFingerprint, created, removed, updated });
     return { ok: true, created, removed, updated, needsContinuation: false, sourceFingerprint: planned.preview.sourceFingerprint, sync };

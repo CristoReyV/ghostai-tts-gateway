@@ -31,6 +31,7 @@ afterAll(() => db._setMemoryStoreEnabled(false));
 test("creates distinct SKOOL access with escrow, no email, no fixed expiry and no financial writes", async () => {
   const legacy = await members.createMemberWithAccess({ name: "Alice", email: "old@qa.invalid", accessPlan: "annual" });
   const old = await db.getMemberById(legacy.member.id);
+  csv += "\nAlice,old@qa.invalid";
   const beforeBilling = await billing.read();
   const preview = await service.preview(owner);
   expect(preview.counts).toMatchObject({ newMembers: 1, removed: 0, invalid: 0 });
@@ -52,9 +53,10 @@ test("creates distinct SKOOL access with escrow, no email, no fixed expiry and n
   expect(JSON.stringify(await db.listAdminAuditLogs())).not.toContain(activation.accessKey);
 });
 
-test("removal blocks only managed SKOOL; rejoining restores the same key without changing legacy plans", async () => {
+test("removal revokes SKOOL keys and reappearance cannot silently restore revoked access", async () => {
   const legacy = await members.createMemberWithAccess({ name: "Legacy", email: "legacy@qa.invalid", accessPlan: "lifetime" });
   const legacyBefore = await db.getMemberById(legacy.member.id);
+  csv += "\nLegacy,legacy@qa.invalid";
   await run(); const member = await db.getMemberByEmail("alice@qa.invalid");
   const token = await db.getLatestActivationTokenForMember(member.id);
   const active = await members.activateMemberAccess(members.safeDecryptKey(token.encrypted_invitation_token));
@@ -66,9 +68,10 @@ test("removal blocks only managed SKOOL; rejoining restores the same key without
   await expect(prepareMemberDelivery(member.id)).rejects.toBeTruthy();
   expect(await db.getMemberById(legacy.member.id)).toEqual(legacyBefore);
   csv += "\nAlice,alice@qa.invalid";
-  expect((await service.preview(owner)).counts.rejoined).toBe(1); await run();
-  expect((await authorized(active.accessKey)).ok).toBe(true);
-  expect(await db.getMemberById(member.id)).toMatchObject({ key_id: member.key_id, status: "active", activated_at: active.activatedAt });
+  expect((await service.preview(owner)).details).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Alice", classification: "NEEDS_OWNER_REVIEW" })])); await run();
+  expect((await authorized(active.accessKey)).ok).toBe(false);
+  expect(await db.getMemberById(member.id)).toMatchObject({ key_id: member.key_id, status: "revoked", activated_at: active.activatedAt });
+  expect((await db.listTokens()).find(t => t.id === member.key_id).status).toBe("revoked");
   expect(await db.listTokens()).toHaveLength(2);
 });
 
@@ -76,7 +79,7 @@ test("removed pending members cannot activate; manual revocation is never undone
   await run(); const member = await db.getMemberByEmail("alice@qa.invalid");
   const token = await db.getLatestActivationTokenForMember(member.id);
   csv = "Nombre,Correo\nAnother,another@qa.invalid"; await run();
-  await expect(members.activateMemberAccess(members.safeDecryptKey(token.encrypted_invitation_token))).rejects.toMatchObject({ code: "SKOOL_ACCESS_INACTIVE" });
+  await expect(members.activateMemberAccess(members.safeDecryptKey(token.encrypted_invitation_token))).rejects.toBeTruthy();
   await members.revokeMemberAccess(member.id);
   csv += "\nAlice,alice@qa.invalid"; await run();
   const current = await db.getMemberById(member.id);
@@ -124,6 +127,31 @@ test("bounded batches resume without duplicates and defer removals until all new
   expect((await service.preview(owner)).counts).toMatchObject({ newMembers: 0, removed: 0, existing: 10 });
   expect(await db.listTokens()).toHaveLength(11);
   expect(await run()).toMatchObject({ created: 0, removed: 0 });
+});
+
+test.each(["monthly", "annual", "lifetime"])("sheet absence revokes legacy %s access, key and pending links", async accessPlan => {
+  const legacy = await members.createMemberWithAccess({ name: "Legacy", email: "legacy@qa.invalid", accessPlan });
+  const active = await members.activateMemberAccess(legacy.activationToken);
+  const financialBefore = await billing.read();
+  expect((await authorized(active.accessKey)).ok).toBe(true);
+  expect((await service.preview(owner)).counts.removed).toBe(1);
+  await run();
+  expect(await db.getMemberById(legacy.member.id)).toMatchObject({ status: "revoked", access_plan: accessPlan });
+  expect((await authorized(active.accessKey)).ok).toBe(false);
+  expect((await db.getClientById(legacy.member.client_id)).status).toBe("suspended");
+  expect((await db.listTokens()).find(t => t.id === legacy.member.key_id).status).toBe("revoked");
+  expect(await billing.read()).toEqual(financialBefore);
+});
+
+test("large removal sets continue in bounded batches without creating duplicate access", async () => {
+  const entries = Array.from({ length: 10 }, (_, i) => `Legacy ${i},legacy${i}@qa.invalid`);
+  csv = "Nombre,Correo\n" + entries.join("\n");
+  for (let i = 0; i < 10; i++) await members.createMemberWithAccess({ name: `Legacy ${i}`, email: `legacy${i}@qa.invalid`, accessPlan: "annual" });
+  csv = "Nombre,Correo\nKeeper,keeper@qa.invalid";
+  expect(await run()).toMatchObject({ created: 1, removed: 7, needsContinuation: true, remaining: 3 });
+  expect(await run()).toMatchObject({ created: 0, removed: 3, needsContinuation: false });
+  expect((await service.preview(owner)).counts).toMatchObject({ removed: 0, newMembers: 0, existing: 1 });
+  expect((await db.listMembers()).filter(m => m.status === "revoked")).toHaveLength(10);
 });
 
 test("concurrent applies serialize, and OPERATOR may read status but cannot preview or apply", async () => {

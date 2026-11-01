@@ -28,6 +28,7 @@ function getMemberEmailType(member) {
 // Single source for operational decisions; never writes the membership state machine.
 function getMemberOperationalState(member, now = Date.now()) {
   const result = (status, label, recommendedAction, severity, needsAction) => ({ status, label, recommendedAction, severity, needsAction, emailType: getMemberEmailType(member) });
+  if (member.access_plan === "skool" && member.skool_removed_at) return result("SKOOL_REMOVED", "BAJA SKOOL", "Revisar membresía SKOOL con OWNER", "muted", false);
   if (member.status === "revoked" || member.revoked_at) return result("REVOKED", "REVOCADO", "Sin acción pendiente", "muted", false);
   if (member.status === "expired" || time(member.expires_at) <= now) return result("EXPIRED", "VENCIDO", "Revisar renovación con OWNER", "danger", true);
   if (!member.key_id || (member.key && (member.key.status !== "active" || time(member.key.expires_at) <= now)) || member.client?.status === "suspended" || !["pending", "invited", "active"].includes(member.status)) return result("NEEDS_REVIEW", "REVISAR", "Revisar acceso con OWNER", "danger", true);

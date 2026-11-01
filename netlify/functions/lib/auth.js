@@ -217,6 +217,7 @@ async function verifyClientToken(token, requestId) {
   try {
     const member = await db.getMemberByClientId(tokenRecord.client_id);
     if (member) {
+      if (require("./skoolPolicy").skoolBlocked(member)) return { ok: false, authenticated: false, statusCode: 401, error: { code: ERROR_CODES.AUTH_INVALID, message: "SKOOL membership is inactive or expired." }, requestId };
       if (member.status === "revoked") {
         return {
           ok: false,
@@ -258,7 +259,7 @@ async function verifyClientToken(token, requestId) {
       }
     }
   } catch (_) {
-    // Non-blocking member lookup fallback
+    return { ok: false, authenticated: false, statusCode: 503, error: { code: ERROR_CODES.INTERNAL_ERROR, message: "Unable to verify member access." }, requestId };
   }
 
   // Non-blocking update of last_used_at

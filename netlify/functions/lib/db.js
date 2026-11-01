@@ -492,6 +492,10 @@ function enrichMemberStatus(m) {
     if (key) m.key = { id: key.id, token_public_id: key.token_public_id, label: key.label, created_at: key.created_at, status: key.status, expires_at: key.expires_at, last_used_at: key.last_used_at };
   }
   let status = m.status;
+  if (status !== "revoked" && !m.revoked_at && m.access_plan === "skool") {
+    if (m.skool_removed_at) status = "revoked";
+    else if (m.skool_expires_at && Date.parse(m.skool_expires_at) <= Date.now()) status = "expired";
+  }
   if (status === "active" && m.expires_at) {
     if (new Date(m.expires_at).getTime() <= Date.now()) {
       status = "expired";
@@ -511,9 +515,10 @@ function enrichMemberStatus(m) {
  * Creates a member record.
  * Status defaults to 'pending'.
  */
-async function createMemberRecord({ clientId, keyId, name, email, accessPlan }) {
+async function createMemberRecord({ clientId, keyId, name, email, accessPlan, skoolSourceId = null, skoolExpiresAt = null }) {
   const normalizedEmail = email.trim();
   const normalizedPlan = requireAccessPlan(accessPlan || "monthly");
+  const skoolFields = normalizedPlan === "skool" ? { skool_source_id: skoolSourceId, skool_expires_at: skoolExpiresAt, skool_removed_at: null, skool_synced_at: new Date().toISOString() } : {};
   const now = new Date().toISOString();
 
   if (isMemoryMode()) {
@@ -533,6 +538,7 @@ async function createMemberRecord({ clientId, keyId, name, email, accessPlan }) 
       name: name.trim(),
       email: normalizedEmail,
       access_plan: normalizedPlan,
+      ...skoolFields,
       status: "pending",
       created_at: now,
       invited_at: null,
@@ -554,6 +560,7 @@ async function createMemberRecord({ clientId, keyId, name, email, accessPlan }) 
         name: name.trim(),
         email: normalizedEmail,
         access_plan: normalizedPlan,
+        ...skoolFields,
         status: "pending",
       },
     ])
@@ -752,8 +759,10 @@ async function renewMember(memberId, extension = null) {
   }
 
   if (member.access_plan === "lifetime") throw Object.assign(new Error("El acceso De por vida no necesita renovación."), {code:"LIFETIME_NO_RENEWAL",statusCode:409});
+  if (member.access_plan === "skool") throw Object.assign(new Error("El acceso SKOOL se controla desde su lista de miembros."), {code:"SKOOL_NO_RENEWAL",statusCode:409});
   const plan = requireAccessPlan(extension || member.access_plan);
   if (plan === "lifetime") throw Object.assign(new Error("El cambio a De por vida requiere revisar el plan; no es una renovación."), {code:"VALIDATION_INVALID_PLAN",statusCode:400});
+  if (plan === "skool") throw Object.assign(new Error("Usa la sincronización SKOOL para gestionar ese acceso."), {code:"VALIDATION_INVALID_PLAN",statusCode:400});
   const days = plan === "annual" ? 365 : 30;
   const durationMs = days * 24 * 60 * 60 * 1000;
   const now = Date.now();

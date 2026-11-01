@@ -19,6 +19,7 @@ function buildSyncPreview(rows, members, state, sourceId) {
     const profile=member?state.profiles.find(p=>p.member_id===member.id):null;
     let reason=!row.name?"Nombre ausente":!emailValid?"Correo inválido":row.duplicate?"Correo duplicado en la hoja":row.matches.length>1?"Más de un miembro coincide con el correo":!row.plan?"Plan no soportado: "+(row.rawPlan||"sin plan"):!row.currency?"Moneda no indicada o no soportada":row.amount===null&&!row.amountMissing?"Monto inválido":null;
     const detail={row:row.row,name:row.name||"Fila "+row.row,classification:"INVALID",reason,oldPlan:member?.access_plan||null,newPlan:row.plan||row.rawPlan||null,oldAmountMinor:minor(profile),newAmountMinor:row.amount,currency:row.currency,willApply:false};
+    if(row.plan === "skool") {reason="SKOOL se administra desde Sincronizar SKOOL; no desde la hoja de facturación.";detail.reason=reason;}
     if(reason) {counts.invalid++;counts.needsReview++;details.push(detail);continue;}
     validRows++;if(row.plan==="monthly")monthly++;else if(row.plan==="annual")annual++;else lifetime++;
     if(member)existingMembers++;

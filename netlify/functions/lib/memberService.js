@@ -213,7 +213,7 @@ async function issueActivationToken(memberId, plaintextKey = null) {
  *   rawKeyOnce?: string
  * }>}
  */
-async function createMemberWithAccess({ name, email, accessPlan }) {
+async function createMemberWithAccess({ name, email, accessPlan, skoolSourceId = null, skoolExpiresAt = null }) {
   if (!name || typeof name !== "string" || !name.trim()) {
     const err = new Error("El nombre es requerido.");
     err.code = "VALIDATION_MISSING_NAME";
@@ -235,6 +235,7 @@ async function createMemberWithAccess({ name, email, accessPlan }) {
   }
 
   const normalizedPlan = requireAccessPlan(accessPlan || "monthly");
+  if (normalizedPlan === "skool" && (!skoolSourceId || !/^[\w-]+$/.test(skoolSourceId))) throw Object.assign(new Error("El acceso SKOOL requiere la sincronización de su hoja."), { code: "VALIDATION_SKOOL_SOURCE", statusCode: 400 });
 
   // Check if member already exists
   const existing = await db.getMemberByEmail(normalizedEmail);
@@ -265,6 +266,8 @@ async function createMemberWithAccess({ name, email, accessPlan }) {
     name: name.trim(),
     email: normalizedEmail,
     accessPlan: normalizedPlan,
+    skoolSourceId,
+    skoolExpiresAt,
   });
 
   // 4. Generate activation token & link
@@ -386,6 +389,8 @@ async function activateMemberAccess(tokenString) {
     throw err;
   }
 
+  if (require("./skoolPolicy").skoolBlocked(member)) throw Object.assign(new Error("El acceso SKOOL está de baja o vencido. Contacta al administrador."), { code: "SKOOL_ACCESS_INACTIVE", statusCode: 403 });
+
   if (member.status === "revoked") {
     const err = new Error("El acceso para este miembro ha sido revocado.");
     err.code = "MEMBER_REVOKED";
@@ -407,7 +412,7 @@ async function activateMemberAccess(tokenString) {
   const activatedAt = now.toISOString();
   const durationDays = member.access_plan === "annual" ? ANNUAL_DURATION_DAYS : MONTHLY_DURATION_DAYS;
   const durationMs = durationDays * 86400 * 1000;
-  const expiresAt = member.access_plan === "lifetime" ? null : new Date(now.getTime() + durationMs).toISOString();
+  const expiresAt = member.access_plan === "lifetime" ? null : member.access_plan === "skool" ? member.skool_expires_at || null : new Date(now.getTime() + durationMs).toISOString();
 
   // 3. Activate member
   const updatedMember = await db.updateMember(member.id, {
@@ -451,6 +456,7 @@ async function activateMemberAccess(tokenString) {
 
 // Change a pending plan only while activation and expiration remain unset.
 async function updatePendingMemberAccessPlan(memberId, expectedPlan, nextPlan) {
+  if (expectedPlan === "skool" || nextPlan === "skool") throw Object.assign(new Error("Usa la sincronización SKOOL para gestionar ese acceso."), { statusCode: 400 });
   const member = await db.updatePendingMemberPlan(memberId, expectedPlan, nextPlan);
   if (!member) throw Object.assign(new Error("El acceso cambió. Revisa de nuevo el plan."), { statusCode: 409 });
   await db.logOperationEvent({stage:"member_access",eventType:"pending_member_plan_updated",clientId:member.client_id,metadata:{memberId,oldPlan:expectedPlan,newPlan:nextPlan}});
